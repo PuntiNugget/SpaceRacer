@@ -7,12 +7,13 @@
         body { margin: 0; overflow: hidden; background: #0b0d17; color: white; font-family: sans-serif; }
         canvas { display: block; }
         #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; justify-content: center; align-items: center; }
-        .menu-box { pointer-events: auto; background: rgba(20,20,30,0.9); padding: 30px; border: 2px solid #00d2ff; text-align: center; border-radius: 10px; display: none; }
+        .menu-box { pointer-events: auto; background: rgba(20,20,30,0.95); padding: 30px; border: 2px solid #00d2ff; text-align: center; border-radius: 10px; display: none; box-shadow: 0 0 20px rgba(0,210,255,0.2); }
         .visible { display: block; }
-        button { background: #00d2ff; border: none; padding: 10px 20px; color: #000; font-weight: bold; cursor: pointer; margin: 5px; font-size: 16px; }
-        button:hover { background: #fff; }
-        input { padding: 10px; font-size: 16px; text-transform: uppercase; }
-        .hud { position: absolute; top: 10px; left: 10px; font-size: 20px; font-weight: bold; color: #00d2ff; pointer-events: none; }
+        button { background: #00d2ff; border: none; padding: 10px 20px; color: #000; font-weight: bold; cursor: pointer; margin: 5px; font-size: 16px; transition: 0.2s; }
+        button:hover { background: #fff; transform: scale(1.05); }
+        input { padding: 10px; font-size: 16px; text-transform: uppercase; background: #000; color: #fff; border: 1px solid #444; }
+        .hud { position: absolute; top: 10px; left: 10px; font-size: 18px; font-weight: bold; color: #00d2ff; pointer-events: none; text-shadow: 1px 1px 0 #000; }
+        .controls-hint { position: absolute; bottom: 20px; width: 100%; text-align: center; color: #666; font-size: 14px; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -25,9 +26,14 @@
     Handle Lvl: <span id="handleLvl">1</span>
 </div>
 
+<div class="controls-hint">
+    Controls: WASD or ARROWS to Move | SPACE to Brake
+</div>
+
 <div id="ui">
     <div id="mainMenu" class="menu-box visible">
-        <h1>ROCKET RACER</h1>
+        <h1 style="color:#00d2ff; margin-top:0;">ROCKET RACER</h1>
+        <p>Use WASD/Arrows to Drive. Space to Brake.</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Multiplayer</button>
         <button onclick="showMenu('shopMenu')">Upgrade Shop</button>
@@ -40,28 +46,32 @@
         <input id="roomCodeInput" placeholder="Enter Code">
         <button onclick="joinRoom()">Join</button>
         <br><br>
-        <button onclick="showMenu('mainMenu')">Back</button>
+        <button onclick="showMenu('mainMenu')" style="background:#555; color:white;">Back</button>
     </div>
 
     <div id="lobbyMenu" class="menu-box">
-        <h2>Room: <span id="lobbyCode"></span></h2>
+        <h2>Room: <span id="lobbyCode" style="color:#ffee00;"></span></h2>
         <p>Waiting for host to start...</p>
-        <div id="playerList"></div>
+        <div id="playerList" style="margin-bottom:20px;"></div>
         <button id="startBtn" style="display:none;" onclick="requestStart()">START RACE</button>
     </div>
 
     <div id="shopMenu" class="menu-box">
         <h2>Upgrade Hangar</h2>
         <p>Current Points: <span id="shopPoints">0</span></p>
-        <button onclick="buyUpgrade('speed')">Upgrade Speed (100 pts)</button>
-        <button onclick="buyUpgrade('handling')">Upgrade Handling (100 pts)</button>
-        <br><br>
-        <button onclick="showMenu('mainMenu')">Back</button>
+        <div style="margin: 10px 0;">
+            <button onclick="buyUpgrade('speed')">Engine (100 pts)</button>
+        </div>
+        <div style="margin: 10px 0;">
+            <button onclick="buyUpgrade('handling')">Handling (100 pts)</button>
+        </div>
+        <br>
+        <button onclick="showMenu('mainMenu')" style="background:#555; color:white;">Back</button>
     </div>
 
     <div id="gameOverMenu" class="menu-box">
         <h1>FINISHED!</h1>
-        <h2 id="resultText"></h2>
+        <h2 id="resultText" style="color:#ffee00;"></h2>
         <p>Points Earned: <span id="earnedPoints">0</span></p>
         <button onclick="showMenu('mainMenu')">Main Menu</button>
     </div>
@@ -75,12 +85,12 @@
 
     // Game State
     let width, height;
-    let gameState = 'menu'; // menu, lobby, playing
+    let gameState = 'menu'; 
     let roomCode = null;
     let isHost = false;
-    let opponents = {}; // Stores opponent {x, y, angle}
+    let opponents = {};
     
-    // Player Stats (Persisted)
+    // Player Stats
     let stats = {
         points: parseInt(localStorage.getItem('rr_points')) || 0,
         speedLvl: parseInt(localStorage.getItem('rr_speed')) || 1,
@@ -96,10 +106,18 @@
     };
 
     let track = [];
-    let mouse = { x: 0, y: 0 };
     let camera = { x: 0, y: 0 };
+    
+    // NEW: Key State Tracker
+    let keys = {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+        brake: false
+    };
 
-    // --- SETUP & LOOP ---
+    // --- SETUP & INPUT ---
     function resize() {
         width = canvas.width = window.innerWidth;
         height = canvas.height = window.innerHeight;
@@ -107,9 +125,21 @@
     window.addEventListener('resize', resize);
     resize();
 
-    window.addEventListener('mousemove', e => {
-        mouse.x = e.clientX;
-        mouse.y = e.clientY;
+    // Input Listeners
+    window.addEventListener('keydown', (e) => {
+        if(e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = true;
+        if(e.code === 'ArrowDown' || e.code === 'KeyS') keys.down = true;
+        if(e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+        if(e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+        if(e.code === 'Space') keys.brake = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if(e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = false;
+        if(e.code === 'ArrowDown' || e.code === 'KeyS') keys.down = false;
+        if(e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+        if(e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+        if(e.code === 'Space') keys.brake = false;
     });
 
     function updateUI() {
@@ -121,6 +151,7 @@
     updateUI();
 
     function gameLoop() {
+        // Clear screen
         ctx.fillStyle = '#0b0d17';
         ctx.fillRect(0, 0, width, height);
 
@@ -128,7 +159,6 @@
             updatePhysics();
             drawGame();
             
-            // Multiplayer Sync
             if(roomCode) {
                 socket.emit('playerMove', { 
                     room: roomCode, 
@@ -143,34 +173,41 @@
     }
     requestAnimationFrame(gameLoop);
 
-    // --- GAME LOGIC ---
+    // --- PHYSICS ENGINE ---
 
     function updatePhysics() {
-        // Max speed based on level
-        const maxSpeed = 5 + (stats.speedLvl * 1.5);
-        const handling = 0.02 + (stats.handleLvl * 0.005);
-        const acceleration = 0.2;
+        // Stats
+        const maxSpeed = 6 + (stats.speedLvl * 1.5);
+        const turnSpeed = 0.04 + (stats.handleLvl * 0.005);
+        const acceleration = 0.15 + (stats.speedLvl * 0.02);
 
-        // 1. Calculate Angle to Mouse (relative to camera)
-        // Since camera centers on player, mouse relative to center screen
-        let dx = mouse.x - (width/2);
-        let dy = mouse.y - (height/2);
-        let targetAngle = Math.atan2(dy, dx);
+        // 1. Rotation (A/D or Left/Right)
+        if(keys.left) player.angle -= turnSpeed;
+        if(keys.right) player.angle += turnSpeed;
 
-        // Smooth Rotation
-        let diff = targetAngle - player.angle;
-        // Normalize angle difference
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        player.angle += diff * handling;
+        // 2. Thrust (W/Up)
+        if(keys.up) {
+            player.vx += Math.cos(player.angle) * acceleration;
+            player.vy += Math.sin(player.angle) * acceleration;
+            
+            // Generate simple particles for engine
+            if(Math.random() > 0.5) createParticle(player.x, player.y, player.angle);
+        }
 
-        // 2. Move Forward
-        player.vx += Math.cos(player.angle) * acceleration;
-        player.vy += Math.sin(player.angle) * acceleration;
+        // 3. Reverse/Back (S/Down) - weaker than forward
+        if(keys.down) {
+            player.vx -= Math.cos(player.angle) * (acceleration * 0.5);
+            player.vy -= Math.sin(player.angle) * (acceleration * 0.5);
+        }
 
-        // Friction/Drag
-        player.vx *= 0.98;
-        player.vy *= 0.98;
+        // 4. Braking (Space)
+        if (keys.brake) {
+            player.vx *= 0.92; // Strong deceleration
+            player.vy *= 0.92;
+        } else {
+            player.vx *= 0.99; // Natural space friction (drift)
+            player.vy *= 0.99;
+        }
 
         // Cap speed
         let speed = Math.sqrt(player.vx*player.vx + player.vy*player.vy);
@@ -183,17 +220,16 @@
         player.x += player.vx;
         player.y += player.vy;
 
-        // 3. Camera Follow
+        // Camera Follow
         camera.x = player.x - width/2;
         camera.y = player.y - height/2;
 
-        // 4. Check Checkpoints
+        // Check Checkpoints
         if (track.length > 0) {
             let target = track[player.currentPlanetIndex];
             let dist = Math.hypot(player.x - target.x, player.y - target.y);
             
-            if (dist < target.radius + 20) {
-                // Reached planet
+            if (dist < target.radius + 30) {
                 if (player.currentPlanetIndex < track.length - 1) {
                     player.currentPlanetIndex++;
                 } else {
@@ -203,25 +239,51 @@
         }
     }
 
+    // Simple particle system
+    let particles = [];
+    function createParticle(x, y, angle) {
+        // Offset to back of ship
+        const px = x - Math.cos(angle) * 20;
+        const py = y - Math.sin(angle) * 20;
+        particles.push({
+            x: px, y: py,
+            life: 1.0,
+            vx: (Math.random() - 0.5) * 2,
+            vy: (Math.random() - 0.5) * 2
+        });
+    }
+
     function drawGame() {
         ctx.save();
         ctx.translate(-camera.x, -camera.y);
 
-        // Draw Stars (Static background relative to world)
+        // Draw Stars
         ctx.fillStyle = 'white';
         for(let i=0; i<100; i++) {
-            // Simple parallax hack or just random dots fixed in world space
             ctx.fillRect(((i*137)%2000 + player.x*0.1), ((i*94)%2000 + player.y*0.1), 2, 2);
         }
 
-        // Draw Track (Planets)
+        // Draw Particles
+        for(let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.05;
+            if(p.life <= 0) {
+                particles.splice(i, 1);
+            } else {
+                ctx.fillStyle = `rgba(255, 165, 0, ${p.life})`;
+                ctx.fillRect(p.x, p.y, 4, 4);
+            }
+        }
+
+        // Draw Track
         track.forEach((p, index) => {
             ctx.beginPath();
             ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
             ctx.fillStyle = p.color;
             ctx.fill();
             
-            // Highlight Target
             if(index === player.currentPlanetIndex) {
                 ctx.strokeStyle = '#fff';
                 ctx.lineWidth = 5;
@@ -229,11 +291,12 @@
             }
             if(p.isFinish) {
                 ctx.fillStyle = 'white';
-                ctx.fillText("FINISH", p.x - 20, p.y);
+                ctx.font = "20px Arial";
+                ctx.fillText("FINISH", p.x - 30, p.y + 5);
             }
         });
 
-        // Draw Opponents (Ghosts)
+        // Draw Opponents
         for (let id in opponents) {
             if(id === socket.id) continue;
             let op = opponents[id];
@@ -243,14 +306,14 @@
         // Draw Player
         drawRocket(player.x, player.y, player.angle, '#00d2ff');
 
-        // Draw Arrow to next planet
+        // Draw Arrow
         if(track[player.currentPlanetIndex]) {
             let t = track[player.currentPlanetIndex];
             let a = Math.atan2(t.y - player.y, t.x - player.x);
-            let arrowDist = 100;
-            ctx.fillStyle = 'yellow';
+            let arrowDist = 120;
+            ctx.fillStyle = '#ff0';
             ctx.beginPath();
-            ctx.arc(player.x + Math.cos(a)*arrowDist, player.y + Math.sin(a)*arrowDist, 5, 0, Math.PI*2);
+            ctx.arc(player.x + Math.cos(a)*arrowDist, player.y + Math.sin(a)*arrowDist, 8, 0, Math.PI*2);
             ctx.fill();
         }
 
@@ -263,42 +326,44 @@
         ctx.rotate(angle);
         
         ctx.fillStyle = color;
-        // Simple Triangle Rocket
         ctx.beginPath();
         ctx.moveTo(20, 0);
-        ctx.lineTo(-15, 10);
-        ctx.lineTo(-15, -10);
+        ctx.lineTo(-15, 12);
+        ctx.lineTo(-10, 0);
+        ctx.lineTo(-15, -12);
         ctx.fill();
         
-        // Engine flame
-        ctx.fillStyle = 'orange';
-        ctx.beginPath();
-        ctx.moveTo(-15, 5);
-        ctx.lineTo(-30 + Math.random()*10, 0);
-        ctx.lineTo(-15, -5);
-        ctx.fill();
+        // Thrust flame visual if accelerating
+        if(keys.up && color === '#00d2ff') {
+            ctx.fillStyle = '#ffaa00';
+            ctx.beginPath();
+            ctx.moveTo(-15, 6);
+            ctx.lineTo(-35 - Math.random()*10, 0);
+            ctx.lineTo(-15, -6);
+            ctx.fill();
+        }
 
         ctx.restore();
     }
 
-    // --- MENUS & HELPERS ---
-
+    // --- MENUS & LOGIC (Identical to previous) ---
     function showMenu(id) {
         document.querySelectorAll('.menu-box').forEach(el => el.classList.remove('visible'));
         if(id) document.getElementById(id).classList.add('visible');
     }
 
     function setupSinglePlayer() {
-        // Generate a local track
         track = [];
         let startX = 400, startY = 300;
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 15; i++) {
             track.push({
                 x: startX, y: startY,
-                radius: 40, color: '#444', isFinish: i===9
+                radius: 40 + Math.random()*20, 
+                color: `hsl(${Math.random()*360}, 70%, 40%)`, 
+                isFinish: i===14
             });
-            startX += (Math.random() - 0.5) * 800;
-            startY -= 400;
+            startX += (Math.random() - 0.5) * 1200;
+            startY -= (600 + Math.random() * 200);
         }
         startGame(track);
     }
@@ -308,9 +373,10 @@
         player.x = track[0].x;
         player.y = track[0].y;
         player.vx = 0; player.vy = 0;
+        player.angle = -Math.PI / 2; // Point up
         player.currentPlanetIndex = 1;
         gameState = 'playing';
-        showMenu(null); // Hide all menus
+        showMenu(null);
     }
 
     function finishRace() {
@@ -318,7 +384,6 @@
         if (roomCode) {
             socket.emit('playerFinished', roomCode);
         } else {
-            // Single player always gets 1st place points
             endGameScreen(1);
         }
     }
@@ -335,8 +400,7 @@
         document.getElementById('resultText').innerText = rank + (rank===1?"st":rank===2?"nd":"th") + " Place!";
         document.getElementById('earnedPoints').innerText = earned;
         showMenu('gameOverMenu');
-        
-        roomCode = null; // Reset multiplayer
+        roomCode = null;
     }
 
     function buyUpgrade(type) {
@@ -345,7 +409,6 @@
             if(type === 'speed') stats.speedLvl++;
             if(type === 'handling') stats.handleLvl++;
             saveStats();
-            updateUI();
         } else {
             alert("Not enough points!");
         }
@@ -358,57 +421,33 @@
         updateUI();
     }
 
-    // --- MULTIPLAYER SOCKETS ---
-
-    function createRoom() {
-        socket.emit('createRoom');
-    }
-
-    function joinRoom() {
-        const code = document.getElementById('roomCodeInput').value.toUpperCase();
-        socket.emit('joinRoom', code);
-    }
-
-    function requestStart() {
-        if(roomCode && isHost) socket.emit('startGame', roomCode);
-    }
+    function createRoom() { socket.emit('createRoom'); }
+    function joinRoom() { socket.emit('joinRoom', document.getElementById('roomCodeInput').value.toUpperCase()); }
+    function requestStart() { if(roomCode && isHost) socket.emit('startGame', roomCode); }
 
     socket.on('roomCreated', (code) => {
-        roomCode = code;
-        isHost = true;
+        roomCode = code; isHost = true;
         document.getElementById('lobbyCode').innerText = code;
         document.getElementById('startBtn').style.display = 'inline-block';
         showMenu('lobbyMenu');
     });
 
     socket.on('roomJoined', (data) => {
-        roomCode = data.code;
-        isHost = false;
-        track = data.track; // Pre-load track
+        roomCode = data.code; isHost = false; track = data.track;
         document.getElementById('lobbyCode').innerText = data.code;
         document.getElementById('startBtn').style.display = 'none';
         showMenu('lobbyMenu');
     });
 
     socket.on('updateLobby', (players) => {
-        const list = document.getElementById('playerList');
-        list.innerHTML = Object.keys(players).map(id => `<div>Player ${id.substr(0,4)}</div>`).join('');
+        document.getElementById('playerList').innerHTML = Object.keys(players).map(id => 
+            `<div style="padding:5px; border-bottom:1px solid #333;">Pilot ${id.substr(0,4)}</div>`
+        ).join('');
     });
 
-    socket.on('gameStart', (serverTrack) => {
-        startGame(serverTrack);
-    });
-
-    socket.on('playerMoved', (data) => {
-        opponents[data.id] = data;
-    });
-
-    socket.on('gameOver', (rank) => {
-        if(gameState === 'finished') { // Only trigger if I locally finished
-             endGameScreen(rank);
-        }
-    });
-
+    socket.on('gameStart', (serverTrack) => { startGame(serverTrack); });
+    socket.on('playerMoved', (data) => { opponents[data.id] = data; });
+    socket.on('gameOver', (rank) => { if(gameState === 'finished') endGameScreen(rank); });
     socket.on('errorMsg', (msg) => alert(msg));
 
 </script>
