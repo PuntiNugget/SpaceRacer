@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Warp Speed</title>
+    <title>Stellar Drift: Chaos Edition</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
@@ -62,13 +62,13 @@
 
 <div class="controls-hint">
     <b>WASD</b> Drive &bull; <b>SHIFT</b> Drift &bull; <b>Q</b> Turbo &bull; <b>S</b> Brake
-    <br> <span style="color:#00ffff">Blue Swirls = Random Teleport</span>
+    <br> <span style="color:#00ffff">Watch out for Bots using Turbo!</span>
 </div>
 
 <div id="ui">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Turbo & Time Travel Edition</p>
+        <p>Chaos Edition: Bots Turbo & Crash</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Multiplayer</button>
         <button class="secondary" onclick="showMenu('shopMenu')">Upgrade Ship</button>
@@ -167,28 +167,15 @@
     function initBackgrounds() {
         backgroundStars = [];
         foregroundDust = [];
-        // Deep Space Stars
         for(let i=0; i<200; i++) {
-            backgroundStars.push({
-                x: Math.random() * 3000, 
-                y: Math.random() * 3000, 
-                size: Math.random() * 2,
-                alpha: Math.random()
-            });
+            backgroundStars.push({x: Math.random() * 3000, y: Math.random() * 3000, size: Math.random() * 2, alpha: Math.random()});
         }
-        // Fast Foreground Dust
         for(let i=0; i<50; i++) {
-            foregroundDust.push({
-                x: Math.random() * width,
-                y: Math.random() * height,
-                vx: (Math.random() - 0.5) * 10,
-                vy: (Math.random() - 0.5) * 10
-            });
+            foregroundDust.push({x: Math.random() * width, y: Math.random() * height, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10});
         }
     }
     resize();
 
-    // Keyboard Listeners
     window.addEventListener('keydown', (e) => {
         if(e.key === 'ArrowUp' || e.code === 'KeyW') keys.up = true;
         if(e.key === 'ArrowDown' || e.code === 'KeyS') keys.down = true;
@@ -217,7 +204,6 @@
 
     // --- MAIN LOOP ---
     function gameLoop() {
-        // Clear with slight fade for motion blur effect? No, sticking to crisp clear
         ctx.fillStyle = '#050508';
         ctx.fillRect(0, 0, width, height);
 
@@ -235,7 +221,6 @@
         if(gameState === 'playing' || gameState === 'finished' || player.dead) {
             drawGame();
         }
-
         requestAnimationFrame(gameLoop);
     }
     requestAnimationFrame(gameLoop);
@@ -249,10 +234,8 @@
     function updateCamera() {
         if(screenShake > 0) screenShake *= 0.9; 
         if(screenShake < 0.1) screenShake = 0;
-        
         let shakeX = (Math.random() - 0.5) * screenShake * 4;
         let shakeY = (Math.random() - 0.5) * screenShake * 4;
-
         camera.x = player.x - width/2 + shakeX;
         camera.y = player.y - height/2 + shakeY;
     }
@@ -263,20 +246,12 @@
         let acceleration = getPlayerAccel();
         let friction = 0.96; 
 
-        // TURBO LOGIC
         if (keys.turbo) {
-            maxSpeed *= 2.5; // Hyper Speed
-            acceleration *= 3.0;
-            turnSpeed *= 0.4; // Hard to steer
-            screenShake = Math.max(screenShake, 3.0); // Constant shake
-            // Blue Turbo Particles
+            maxSpeed *= 2.5; acceleration *= 3.0; turnSpeed *= 0.4;
+            screenShake = Math.max(screenShake, 3.0);
             createParticle(player.x, player.y, player.angle + Math.PI + (Math.random()-0.5), '#00ffff');
         }
-
-        if (keys.shift) {
-            friction = 0.995; 
-            screenShake = Math.max(screenShake, 1.5); 
-        }
+        if (keys.shift) { friction = 0.995; screenShake = Math.max(screenShake, 1.5); }
         if (keys.down) friction = 0.90; 
 
         if(keys.left) player.angle -= turnSpeed;
@@ -285,7 +260,6 @@
         if(keys.up || keys.turbo) {
             player.vx += Math.cos(player.angle) * acceleration;
             player.vy += Math.sin(player.angle) * acceleration;
-            // Standard Engine Particles
             if(Math.random()>0.5 && !keys.turbo) createParticle(player.x, player.y, player.angle, '#ffa500');
             if(!keys.turbo) screenShake = Math.max(screenShake, 0.5);
         }
@@ -302,7 +276,6 @@
 
         player.x += player.vx;
         player.y += player.vy;
-
         checkCheckpoints(player);
     }
 
@@ -325,72 +298,135 @@
     function updateBots() {
         if(roomCode) return; 
 
-        const sharedMaxSpeed = getPlayerMaxSpeed();
-        const sharedAccel = getPlayerAccel();
-        const sharedTurnSpeed = getPlayerTurnSpeed();
+        let baseMaxSpeed = getPlayerMaxSpeed();
+        let baseAccel = getPlayerAccel();
+        let baseTurn = getPlayerTurnSpeed();
 
         bots.forEach(bot => {
-            if(bot.finished) return;
+            if(bot.dead || bot.finished) return;
 
             let target = track[bot.currentPlanetIndex];
             let tx = target.x;
             let ty = target.y;
 
-            let isPanicking = false;
-            if(bot.type === 'noob' && Math.random() < 0.05) isPanicking = true;
-
-            if(bot.type === 'expert' || (bot.type === 'adaptive' && bot.adaptiveState === 'expert')) {
-                let nearest = null, minDist = 300;
+            // --- 1. DETERMINE STATE ---
+            
+            // "Doom" Logic (Suicide Run)
+            if(bot.isDoomed) {
+                // Find nearest deadly hazard
+                let nearestDeath = null, deathDist = 600;
                 hazards.forEach(h => {
+                    if(h.type === 'wormhole') return; // Don't suicide into wormholes, that might help them
                     let d = Math.hypot(bot.x - h.x, bot.y - h.y);
-                    if(d < minDist) { minDist = d; nearest = h; }
+                    if(d < deathDist) { deathDist = d; nearestDeath = h; }
                 });
-                if(nearest) {
-                    let angleToHazard = Math.atan2(nearest.y - bot.y, nearest.x - bot.x);
-                    tx -= Math.cos(angleToHazard) * 350;
-                    ty -= Math.sin(angleToHazard) * 350;
+
+                if(nearestDeath) {
+                    // Override target to the hazard
+                    tx = nearestDeath.x;
+                    ty = nearestDeath.y;
+                    bot.turbo = true; // Turbo into death
+                }
+            } 
+            // Normal Logic or Wormhole Hunting
+            else {
+                // Maybe aim for wormhole?
+                let nearestWorm = null, wormDist = 400;
+                hazards.forEach(h => {
+                    if(h.type === 'wormhole') {
+                        let d = Math.hypot(bot.x - h.x, bot.y - h.y);
+                        if(d < wormDist) { wormDist = d; nearestWorm = h; }
+                    }
+                });
+                
+                // 30% chance a bot tries to take a wormhole if seen
+                if(nearestWorm && Math.random() < 0.3) {
+                    tx = nearestWorm.x;
+                    ty = nearestWorm.y;
+                }
+                
+                // Hazard Avoidance (Expert only)
+                if(bot.type === 'expert' || (bot.type === 'adaptive' && bot.adaptiveState === 'expert')) {
+                     let nearest = null, minDist = 300;
+                    hazards.forEach(h => {
+                        let d = Math.hypot(bot.x - h.x, bot.y - h.y);
+                        if(d < minDist) { minDist = d; nearest = h; }
+                    });
+                    if(nearest) {
+                        let angleToHazard = Math.atan2(nearest.y - bot.y, nearest.x - bot.x);
+                        tx -= Math.cos(angleToHazard) * 350;
+                        ty -= Math.sin(angleToHazard) * 350;
+                    }
                 }
             }
 
+            // --- 2. STEERING ---
             let dx = tx - bot.x;
             let dy = ty - bot.y;
             let targetAngle = Math.atan2(dy, dx);
             
-            if(bot.wobble > 0) {
-                if(Math.random() < 0.01) targetAngle += Math.PI; 
-                else targetAngle += (Math.random() - 0.5) * bot.wobble;
+            // Spin Out Logic
+            if(bot.spinning) {
+                targetAngle = bot.angle + 0.5; // Just keep spinning
+                bot.turbo = true; // Spin fast
+            } else if(bot.wobble > 0) {
+                 if(Math.random() < 0.01) targetAngle += Math.PI; 
+                 else targetAngle += (Math.random() - 0.5) * bot.wobble;
             }
 
             let diff = targetAngle - bot.angle;
             while (diff < -Math.PI) diff += Math.PI * 2;
             while (diff > Math.PI) diff -= Math.PI * 2;
-
-            bot.angle += diff * sharedTurnSpeed;
-
-            if(!isPanicking) {
-                bot.vx += Math.cos(bot.angle) * sharedAccel;
-                bot.vy += Math.sin(bot.angle) * sharedAccel;
-            }
             
+            bot.angle += diff * baseTurn;
+
+            // --- 3. TURBO LOGIC ---
+            // If facing target and track is long, hit turbo
+            let distToTarget = Math.hypot(dx, dy);
+            if(Math.abs(diff) < 0.2 && distToTarget > 400 && !bot.spinning) {
+                bot.turbo = true;
+            } else if (!bot.isDoomed && !bot.spinning) {
+                bot.turbo = false;
+            }
+
+            // --- 4. PHYSICS ---
+            let currentAccel = baseAccel;
+            let currentMax = baseMaxSpeed;
+
+            if(bot.turbo) {
+                currentAccel *= 3.0;
+                currentMax *= 2.5;
+                createParticle(bot.x, bot.y, bot.angle + Math.PI + (Math.random()-0.5), '#00ffff');
+            }
+
+            bot.vx += Math.cos(bot.angle) * currentAccel;
+            bot.vy += Math.sin(bot.angle) * currentAccel;
             bot.vx *= 0.96;
             bot.vy *= 0.96;
 
             let speed = Math.hypot(bot.vx, bot.vy);
-            if (speed > sharedMaxSpeed) {
-                bot.vx = (bot.vx / speed) * sharedMaxSpeed;
-                bot.vy = (bot.vy / speed) * sharedMaxSpeed;
+            if (speed > currentMax) {
+                bot.vx = (bot.vx / speed) * currentMax;
+                bot.vy = (bot.vy / speed) * currentMax;
             }
 
             bot.x += bot.vx;
             bot.y += bot.vy;
+            
+            // Randomly start spinning (The 50% chance Doom bots do this more often)
+            if(bot.isDoomed && Math.random() < 0.005) {
+                bot.spinning = true;
+                setTimeout(() => bot.spinning = false, 2000); // Spin for 2 seconds
+            }
 
+            // Adaptive Logic update
             if(bot.type === 'adaptive') {
                 let myScore = (track.length - player.currentPlanetIndex)*1000 + Math.hypot(track[player.currentPlanetIndex].x - player.x, track[player.currentPlanetIndex].y - player.y);
                 let botScore = (track.length - bot.currentPlanetIndex)*1000 + Math.hypot(track[bot.currentPlanetIndex].x - bot.x, track[bot.currentPlanetIndex].y - bot.y);
-                
                 if(botScore < myScore - 500) { bot.adaptiveState = 'noob'; bot.wobble = 1.5; } 
                 else if (botScore > myScore + 500) { bot.adaptiveState = 'expert'; bot.wobble = 0.0; }
             }
+
             checkCheckpoints(bot);
         });
     }
@@ -399,95 +435,97 @@
         hazards.forEach(h => {
             if(h.type === 'meteor') { h.x += h.vx; h.y += h.vy; }
 
+            // PLAYER COLLISIONS
             if(!player.dead) {
-                let dx = player.x - h.x;
-                let dy = player.y - h.y;
-                let dist = Math.hypot(dx, dy);
-
-                // BLACK HOLES
+                let dist = Math.hypot(player.x - h.x, player.y - h.y);
                 if(h.type === 'blackhole') {
                     if(dist < 400) { 
                         screenShake = Math.max(screenShake, (400-dist)/50); 
                         let force = 2500 / (dist * dist); 
-                        player.vx -= (dx / dist) * force;
-                        player.vy -= (dy / dist) * force;
-                        player.vx += (dy / dist) * force * 0.5;
-                        player.vy -= (dx / dist) * force * 0.5;
+                        player.vx -= ((player.x - h.x) / dist) * force;
+                        player.vy -= ((player.y - h.y) / dist) * force;
                     }
                     if(dist < 30) crashGame("Sucked into a Black Hole");
                 }
-                
-                // METEORS
-                if(h.type === 'meteor') {
-                    if(dist < h.radius + 15) crashGame("Hit a moving Meteor");
-                }
+                if(h.type === 'meteor' && dist < h.radius + 15) crashGame("Hit a moving Meteor");
+                if(h.type === 'wormhole' && dist < 40) triggerWormhole(player);
+            }
 
-                // WORMHOLES (New)
-                if(h.type === 'wormhole') {
-                    if(dist < 40) {
-                        triggerWormhole();
+            // BOT COLLISIONS
+            bots.forEach(bot => {
+                if(bot.dead) return;
+                let dist = Math.hypot(bot.x - h.x, bot.y - h.y);
+                
+                if(h.type === 'blackhole') {
+                    if(dist < 400) {
+                         let force = 2500 / (dist * dist); 
+                        bot.vx -= ((bot.x - h.x) / dist) * force;
+                        bot.vy -= ((bot.y - h.y) / dist) * force;
+                    }
+                    if(dist < 30) {
+                        bot.dead = true;
+                        createExplosion(bot.x, bot.y);
+                        // Respawn bot after 3 seconds so race isn't empty
+                        setTimeout(() => {
+                            bot.dead = false;
+                            bot.x = track[bot.currentPlanetIndex-1].x;
+                            bot.y = track[bot.currentPlanetIndex-1].y;
+                            bot.vx = 0; bot.vy = 0;
+                            bot.isDoomed = false; // Reset doom so they don't loop die
+                        }, 3000);
                     }
                 }
-            }
+                if(h.type === 'meteor' && dist < h.radius + 15) {
+                    bot.dead = true;
+                    createExplosion(bot.x, bot.y);
+                    setTimeout(() => {
+                        bot.dead = false;
+                        bot.x = track[bot.currentPlanetIndex-1].x;
+                        bot.y = track[bot.currentPlanetIndex-1].y;
+                        bot.vx = 0; bot.vy = 0;
+                    }, 3000);
+                }
+                if(h.type === 'wormhole' && dist < 40) triggerWormhole(bot);
+            });
         });
     }
 
-    function triggerWormhole() {
-        // Random Teleport Logic
+    function triggerWormhole(entity) {
         let randIndex = Math.floor(Math.random() * track.length);
         let dest = track[randIndex];
+        createExplosion(entity.x, entity.y);
+        entity.x = dest.x;
+        entity.y = dest.y;
+        entity.vx = 0; entity.vy = 0;
+        entity.currentPlanetIndex = randIndex + 1;
+        if(entity.currentPlanetIndex >= track.length) entity.currentPlanetIndex = track.length - 1;
+        createExplosion(entity.x, entity.y);
         
-        // Effects
-        createExplosion(player.x, player.y); // Poof from old spot
-        player.x = dest.x;
-        player.y = dest.y;
-        player.vx = 0; 
-        player.vy = 0;
-        player.currentPlanetIndex = randIndex + 1; // Update target
-        if(player.currentPlanetIndex >= track.length) player.currentPlanetIndex = track.length - 1;
-
-        createExplosion(player.x, player.y); // Poof at new spot
-        screenShake = 30; // Disorientation
-        
-        // Show UI Text
-        const msg = document.getElementById('warpMessage');
-        msg.style.display = 'block';
-        setTimeout(() => msg.style.display = 'none', 2000);
+        if(entity === player) {
+            screenShake = 30;
+            const msg = document.getElementById('warpMessage');
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 2000);
+        }
     }
 
     function createParticle(x, y, angle, color) {
-        particles.push({
-            x: x - Math.cos(angle)*20, 
-            y: y - Math.sin(angle)*20,
-            vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2,
-            life: 1.0, color: color
-        });
+        particles.push({x: x - Math.cos(angle)*20, y: y - Math.sin(angle)*20, vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2, life: 1.0, color: color});
     }
 
     // --- DRAWING ---
     function drawGame() {
         ctx.save();
         
-        // 1. BACKGROUND (Parallax)
-        // Move slowly opposite to player
-        let bgX = camera.x * 0.1; 
-        let bgY = camera.y * 0.1;
-        
+        // Background
+        let bgX = camera.x * 0.1; let bgY = camera.y * 0.1;
         backgroundStars.forEach(s => {
-            // Loop stars so they are infinite
-            let sx = (s.x - bgX) % 3000;
-            let sy = (s.y - bgY) % 3000;
-            if(sx < 0) sx += 3000;
-            if(sy < 0) sy += 3000;
-            
-            // Only draw if on screen
-            if(sx < width && sy < height) {
-                ctx.fillStyle = `rgba(255,255,255,${s.alpha})`;
-                ctx.beginPath(); ctx.arc(sx, sy, s.size, 0, Math.PI*2); ctx.fill();
-            }
+            let sx = (s.x - bgX) % 3000; let sy = (s.y - bgY) % 3000;
+            if(sx < 0) sx += 3000; if(sy < 0) sy += 3000;
+            if(sx < width && sy < height) { ctx.fillStyle = `rgba(255,255,255,${s.alpha})`; ctx.beginPath(); ctx.arc(sx, sy, s.size, 0, Math.PI*2); ctx.fill(); }
         });
 
-        // 2. MAIN WORLD
+        // World
         ctx.translate(-camera.x, -camera.y);
 
         hazards.forEach(h => {
@@ -497,11 +535,8 @@
                 ctx.strokeStyle = 'purple'; ctx.lineWidth = 4; ctx.stroke(); ctx.restore();
             } else if (h.type === 'wormhole') {
                 ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(-Date.now() / 100);
-                ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI*2); 
-                ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.stroke();
-                ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); 
-                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.stroke();
-                ctx.restore();
+                ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI*2); ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.stroke();
+                ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.stroke(); ctx.restore();
             } else {
                 ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fillStyle = '#666'; ctx.fill();
             }
@@ -510,8 +545,7 @@
         particles.forEach((p, i) => {
             p.x += p.vx; p.y += p.vy; p.life -= 0.05;
             if(p.life <= 0) particles.splice(i, 1);
-            ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
-            ctx.fillRect(p.x, p.y, 4, 4); ctx.globalAlpha = 1;
+            ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, 4, 4); ctx.globalAlpha = 1;
         });
 
         if(track.length > 0) {
@@ -528,14 +562,16 @@
         });
 
         bots.forEach(b => {
-            drawRocket(b.x, b.y, b.angle, b.color, true); 
+            if(b.dead) return;
+            // Bot color calculation: Cyan if Turbo, Green/Red/Purple if normal
+            let color = b.turbo ? '#00ffff' : b.color;
+            drawRocket(b.x, b.y, b.angle, color, true); 
             ctx.fillStyle = "white"; ctx.font = "12px Arial"; ctx.fillText(b.name, b.x-20, b.y-30);
         });
 
         for (let id in opponents) { if(id !== socket.id) drawRocket(opponents[id].x, opponents[id].y, opponents[id].angle, '#ff4444', false); }
 
         if(!player.dead) {
-            // If Turbo, flicker blue/white
             let color = keys.turbo ? (Math.random()>0.5 ? '#00ffff' : '#fff') : '#00d2ff';
             drawRocket(player.x, player.y, player.angle, color, keys.up || keys.turbo);
         }
@@ -546,21 +582,13 @@
             ctx.fillStyle = '#ff0'; ctx.beginPath(); ctx.arc(player.x + Math.cos(a)*100, player.y + Math.sin(a)*100, 6, 0, Math.PI*2); ctx.fill();
         }
 
-        // 3. FOREGROUND (Parallax Dust)
-        // Reset transform to draw over everything
+        // Foreground
         ctx.setTransform(1, 0, 0, 1, 0, 0); 
-        
         foregroundDust.forEach(d => {
-            // Move based on player speed (gives speed feeling)
-            d.x -= player.vx * 1.5; 
-            d.y -= player.vy * 1.5;
-            
-            // Wrap around screen
+            d.x -= player.vx * 1.5; d.y -= player.vy * 1.5;
             if(d.x < 0) d.x += width; if(d.x > width) d.x -= width;
             if(d.y < 0) d.y += height; if(d.y > height) d.y -= height;
-            
-            ctx.fillStyle = 'rgba(200, 200, 255, 0.3)';
-            ctx.fillRect(d.x, d.y, 2, 2);
+            ctx.fillStyle = 'rgba(200, 200, 255, 0.3)'; ctx.fillRect(d.x, d.y, 2, 2);
         });
 
         ctx.restore();
@@ -571,13 +599,11 @@
         ctx.translate(x, y);
         ctx.rotate(angle);
         ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(20, 0); ctx.lineTo(-15, 12); ctx.lineTo(-10, 0); ctx.lineTo(-15, -12);
-        ctx.fill();
+        ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-15, 12); ctx.lineTo(-10, 0); ctx.lineTo(-15, -12); ctx.fill();
         if(thrusting) {
-            ctx.fillStyle = keys.turbo ? '#00ffff' : '#ffaa00'; // Blue flames for turbo
+            ctx.fillStyle = (color === '#00ffff') ? '#00ffff' : '#ffaa00';
             ctx.beginPath();
-            let flameLen = keys.turbo ? 50 : 30; // Longer flame for turbo
+            let flameLen = (color === '#00ffff') ? 50 : 30;
             ctx.moveTo(-15, 6); ctx.lineTo(-flameLen - Math.random()*15, 0); ctx.lineTo(-15, -6);
             ctx.fill();
         }
@@ -591,36 +617,29 @@
         let startX = 400, startY = 300;
         
         for (let i = 0; i < 20; i++) {
-            track.push({
-                x: startX, y: startY,
-                radius: 40 + Math.random()*30, 
-                color: `hsl(${Math.random()*360}, 60%, 40%)`, 
-                isFinish: i===19
-            });
-            
+            track.push({ x: startX, y: startY, radius: 40 + Math.random()*30, color: `hsl(${Math.random()*360}, 60%, 40%)`, isFinish: i===19 });
             if(i > 0 && i < 19) {
                 let r = Math.random();
-                if(r < 0.25) {
-                    hazards.push({ type: 'blackhole', x: startX + (Math.random()-0.5)*400, y: startY - 250 });
-                } else if (r < 0.5) {
-                    hazards.push({ 
-                        type: 'meteor', radius: 20+Math.random()*20, x: startX + (Math.random()-0.5)*300, y: startY - 300,
-                        vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3
-                    });
-                } else if (r < 0.65) {
-                    // WORMHOLES
-                    hazards.push({ type: 'wormhole', x: startX + (Math.random()-0.5)*500, y: startY - 100 });
-                }
+                if(r < 0.25) hazards.push({ type: 'blackhole', x: startX + (Math.random()-0.5)*400, y: startY - 250 });
+                else if (r < 0.5) hazards.push({ type: 'meteor', radius: 20+Math.random()*20, x: startX + (Math.random()-0.5)*300, y: startY - 300, vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3 });
+                else if (r < 0.65) hazards.push({ type: 'wormhole', x: startX + (Math.random()-0.5)*500, y: startY - 100 });
             }
             startX += (Math.random() - 0.5) * 1500;
             startY -= (600 + Math.random() * 300);
         }
 
         bots = [
-            { name: "Rusty (Noob)", type: 'noob', color: '#66ff66', x: 450, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 1.2 },
-            { name: "Apex (Expert)", type: 'expert', color: '#ff3333', x: 350, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0 },
-            { name: "Shadow (Adapt)", type: 'adaptive', adaptiveState: 'expert', color: '#aa33ff', x: 400, y: 350, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0 }
+            { name: "Rusty (Noob)", type: 'noob', color: '#66ff66', x: 450, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 1.2, turbo: false, spinning: false, dead: false },
+            { name: "Apex (Expert)", type: 'expert', color: '#ff3333', x: 350, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0, turbo: false, spinning: false, dead: false },
+            { name: "Shadow (Adapt)", type: 'adaptive', adaptiveState: 'expert', color: '#aa33ff', x: 400, y: 350, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0, turbo: false, spinning: false, dead: false }
         ];
+
+        // 50% Chance to doom a bot
+        if(Math.random() < 0.5) {
+            let victim = bots[Math.floor(Math.random() * bots.length)];
+            victim.isDoomed = true;
+            console.log(victim.name + " is doomed to crash!");
+        }
 
         startGame(track);
     }
@@ -652,14 +671,15 @@
 
     function calculateRank() {
         if(gameState !== 'playing') return;
-        let total = bots.length + 1;
+        let activeBots = bots.filter(b => !b.dead);
+        let total = activeBots.length + 1;
         let myScore = player.currentPlanetIndex * 10000 - Math.hypot(track[player.currentPlanetIndex].x - player.x, track[player.currentPlanetIndex].y - player.y);
         let rank = 1;
-        bots.forEach(b => {
+        activeBots.forEach(b => {
             let botScore = b.currentPlanetIndex * 10000 - Math.hypot(track[b.currentPlanetIndex].x - b.x, track[b.currentPlanetIndex].y - b.y);
             if(botScore > myScore) rank++;
         });
-        document.getElementById('currentRank').innerText = rank + "/" + total;
+        document.getElementById('currentRank').innerText = rank + "/" + (bots.length+1);
     }
 
     function finishRace() {
