@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: IMPACT</title>
+    <title>Stellar Drift: Warp Speed</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #0b0d17; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
         #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; justify-content: center; align-items: center; }
         
@@ -46,6 +46,7 @@
         .controls-hint { position: absolute; bottom: 30px; width: 100%; text-align: center; color: #888; font-size: 14px; pointer-events: none; }
         
         .crash-title { color: #ff3333; font-size: 40px; margin-bottom: 10px; text-transform: uppercase; font-weight: 900; letter-spacing: 5px; }
+        .warp-msg { color: #00ffff; font-size: 30px; font-weight: bold; text-shadow: 0 0 10px cyan; position: absolute; top: 20%; width: 100%; text-align: center; display: none; }
     </style>
 </head>
 <body>
@@ -57,14 +58,17 @@
     <div>POS: <span id="currentRank">1/4</span></div>
 </div>
 
+<div id="warpMessage" class="warp-msg">WORMHOLE TRAVEL!</div>
+
 <div class="controls-hint">
-    <b>WASD</b> to Drive &bull; <b>SHIFT</b> to Drift &bull; <b>S</b> to Brake
+    <b>WASD</b> Drive &bull; <b>SHIFT</b> Drift &bull; <b>Q</b> Turbo &bull; <b>S</b> Brake
+    <br> <span style="color:#00ffff">Blue Swirls = Random Teleport</span>
 </div>
 
 <div id="ui">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Impact Edition</p>
+        <p>Turbo & Time Travel Edition</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Multiplayer</button>
         <button class="secondary" onclick="showMenu('shopMenu')">Upgrade Ship</button>
@@ -128,6 +132,8 @@
     let bots = [];      
     let hazards = [];   
     let particles = []; 
+    let backgroundStars = [];
+    let foregroundDust = [];
     
     // Camera Shake
     let screenShake = 0;
@@ -148,14 +154,38 @@
     let camera = { x: 0, y: 0 };
     
     // Inputs
-    let keys = { up: false, down: false, left: false, right: false, shift: false };
+    let keys = { up: false, down: false, left: false, right: false, shift: false, turbo: false };
 
     // --- INITIALIZATION ---
     function resize() {
         width = canvas.width = window.innerWidth;
         height = canvas.height = window.innerHeight;
+        initBackgrounds();
     }
     window.addEventListener('resize', resize);
+    
+    function initBackgrounds() {
+        backgroundStars = [];
+        foregroundDust = [];
+        // Deep Space Stars
+        for(let i=0; i<200; i++) {
+            backgroundStars.push({
+                x: Math.random() * 3000, 
+                y: Math.random() * 3000, 
+                size: Math.random() * 2,
+                alpha: Math.random()
+            });
+        }
+        // Fast Foreground Dust
+        for(let i=0; i<50; i++) {
+            foregroundDust.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                vx: (Math.random() - 0.5) * 10,
+                vy: (Math.random() - 0.5) * 10
+            });
+        }
+    }
     resize();
 
     // Keyboard Listeners
@@ -165,6 +195,7 @@
         if(e.key === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
         if(e.key === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
         if(e.shiftKey) keys.shift = true;
+        if(e.code === 'KeyQ') keys.turbo = true;
     });
 
     window.addEventListener('keyup', (e) => {
@@ -173,6 +204,7 @@
         if(e.key === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
         if(e.key === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
         if(!e.shiftKey) keys.shift = false;
+        if(e.code === 'KeyQ') keys.turbo = false;
     });
 
     function updateUI() {
@@ -185,23 +217,18 @@
 
     // --- MAIN LOOP ---
     function gameLoop() {
-        ctx.fillStyle = '#050510';
+        // Clear with slight fade for motion blur effect? No, sticking to crisp clear
+        ctx.fillStyle = '#050508';
         ctx.fillRect(0, 0, width, height);
 
         if (gameState === 'playing') {
-            
-            // Only update physics if alive
             if(!player.dead) {
                 updatePlayerPhysics();
                 calculateRank();
                 if(roomCode) socket.emit('playerMove', { room: roomCode, x: player.x, y: player.y, angle: player.angle });
             }
-
-            // Always run environment
             updateBots();
             updateHazards(); 
-            
-            // Always run camera (so it can shake after death)
             updateCamera();
         }
 
@@ -220,12 +247,9 @@
     function getPlayerTurnSpeed() { return 0.05 + (stats.handleLvl * 0.005); }
 
     function updateCamera() {
-        // Decay Shake
         if(screenShake > 0) screenShake *= 0.9; 
         if(screenShake < 0.1) screenShake = 0;
         
-        // Apply offset
-        // Multiply by 4 so a shake of 50 = 200px deviation
         let shakeX = (Math.random() - 0.5) * screenShake * 4;
         let shakeY = (Math.random() - 0.5) * screenShake * 4;
 
@@ -234,25 +258,36 @@
     }
 
     function updatePlayerPhysics() {
-        const maxSpeed = getPlayerMaxSpeed();
-        const turnSpeed = getPlayerTurnSpeed();
+        let maxSpeed = getPlayerMaxSpeed();
+        let turnSpeed = getPlayerTurnSpeed();
         let acceleration = getPlayerAccel();
         let friction = 0.96; 
 
+        // TURBO LOGIC
+        if (keys.turbo) {
+            maxSpeed *= 2.5; // Hyper Speed
+            acceleration *= 3.0;
+            turnSpeed *= 0.4; // Hard to steer
+            screenShake = Math.max(screenShake, 3.0); // Constant shake
+            // Blue Turbo Particles
+            createParticle(player.x, player.y, player.angle + Math.PI + (Math.random()-0.5), '#00ffff');
+        }
+
         if (keys.shift) {
             friction = 0.995; 
-            screenShake = Math.max(screenShake, 1.5); // Drift rumble
+            screenShake = Math.max(screenShake, 1.5); 
         }
         if (keys.down) friction = 0.90; 
 
         if(keys.left) player.angle -= turnSpeed;
         if(keys.right) player.angle += turnSpeed;
 
-        if(keys.up) {
+        if(keys.up || keys.turbo) {
             player.vx += Math.cos(player.angle) * acceleration;
             player.vy += Math.sin(player.angle) * acceleration;
-            if(Math.random()>0.5) createParticle(player.x, player.y, player.angle, '#ffa500');
-            screenShake = Math.max(screenShake, 0.5); // Engine rumble
+            // Standard Engine Particles
+            if(Math.random()>0.5 && !keys.turbo) createParticle(player.x, player.y, player.angle, '#ffa500');
+            if(!keys.turbo) screenShake = Math.max(screenShake, 0.5);
         }
 
         player.vx *= friction;
@@ -302,7 +337,6 @@
             let ty = target.y;
 
             let isPanicking = false;
-            // Noob Panic (5% chance every frame to stop moving)
             if(bot.type === 'noob' && Math.random() < 0.05) isPanicking = true;
 
             if(bot.type === 'expert' || (bot.type === 'adaptive' && bot.adaptiveState === 'expert')) {
@@ -370,6 +404,7 @@
                 let dy = player.y - h.y;
                 let dist = Math.hypot(dx, dy);
 
+                // BLACK HOLES
                 if(h.type === 'blackhole') {
                     if(dist < 400) { 
                         screenShake = Math.max(screenShake, (400-dist)/50); 
@@ -381,11 +416,43 @@
                     }
                     if(dist < 30) crashGame("Sucked into a Black Hole");
                 }
+                
+                // METEORS
                 if(h.type === 'meteor') {
                     if(dist < h.radius + 15) crashGame("Hit a moving Meteor");
                 }
+
+                // WORMHOLES (New)
+                if(h.type === 'wormhole') {
+                    if(dist < 40) {
+                        triggerWormhole();
+                    }
+                }
             }
         });
+    }
+
+    function triggerWormhole() {
+        // Random Teleport Logic
+        let randIndex = Math.floor(Math.random() * track.length);
+        let dest = track[randIndex];
+        
+        // Effects
+        createExplosion(player.x, player.y); // Poof from old spot
+        player.x = dest.x;
+        player.y = dest.y;
+        player.vx = 0; 
+        player.vy = 0;
+        player.currentPlanetIndex = randIndex + 1; // Update target
+        if(player.currentPlanetIndex >= track.length) player.currentPlanetIndex = track.length - 1;
+
+        createExplosion(player.x, player.y); // Poof at new spot
+        screenShake = 30; // Disorientation
+        
+        // Show UI Text
+        const msg = document.getElementById('warpMessage');
+        msg.style.display = 'block';
+        setTimeout(() => msg.style.display = 'none', 2000);
     }
 
     function createParticle(x, y, angle, color) {
@@ -400,52 +467,62 @@
     // --- DRAWING ---
     function drawGame() {
         ctx.save();
-        ctx.translate(-camera.x, -camera.y);
+        
+        // 1. BACKGROUND (Parallax)
+        // Move slowly opposite to player
+        let bgX = camera.x * 0.1; 
+        let bgY = camera.y * 0.1;
+        
+        backgroundStars.forEach(s => {
+            // Loop stars so they are infinite
+            let sx = (s.x - bgX) % 3000;
+            let sy = (s.y - bgY) % 3000;
+            if(sx < 0) sx += 3000;
+            if(sy < 0) sy += 3000;
+            
+            // Only draw if on screen
+            if(sx < width && sy < height) {
+                ctx.fillStyle = `rgba(255,255,255,${s.alpha})`;
+                ctx.beginPath(); ctx.arc(sx, sy, s.size, 0, Math.PI*2); ctx.fill();
+            }
+        });
 
-        ctx.fillStyle = 'white';
-        for(let i=0; i<150; i++) {
-            ctx.fillRect(((i*137)%3000 + player.x*0.1), ((i*94)%3000 + player.y*0.1), Math.random()*2, Math.random()*2);
-        }
+        // 2. MAIN WORLD
+        ctx.translate(-camera.x, -camera.y);
 
         hazards.forEach(h => {
             if(h.type === 'blackhole') {
-                ctx.save();
-                ctx.translate(h.x, h.y);
-                ctx.rotate(Date.now() / 200);
-                ctx.beginPath();
-                ctx.arc(0, 0, 30, 0, Math.PI*2);
-                ctx.fillStyle = 'black'; ctx.fill();
-                ctx.strokeStyle = 'purple'; ctx.lineWidth = 4; ctx.stroke();
+                ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(Date.now() / 200);
+                ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2); ctx.fillStyle = 'black'; ctx.fill();
+                ctx.strokeStyle = 'purple'; ctx.lineWidth = 4; ctx.stroke(); ctx.restore();
+            } else if (h.type === 'wormhole') {
+                ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(-Date.now() / 100);
+                ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI*2); 
+                ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.stroke();
+                ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI*2); 
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.stroke();
                 ctx.restore();
             } else {
-                ctx.beginPath();
-                ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2);
-                ctx.fillStyle = '#666'; ctx.fill();
+                ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fillStyle = '#666'; ctx.fill();
             }
         });
 
         particles.forEach((p, i) => {
             p.x += p.vx; p.y += p.vy; p.life -= 0.05;
             if(p.life <= 0) particles.splice(i, 1);
-            ctx.fillStyle = p.color;
-            ctx.globalAlpha = p.life;
-            ctx.fillRect(p.x, p.y, 4, 4);
-            ctx.globalAlpha = 1;
+            ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
+            ctx.fillRect(p.x, p.y, 4, 4); ctx.globalAlpha = 1;
         });
 
         if(track.length > 0) {
-            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-            ctx.lineWidth = 50;
-            ctx.beginPath();
-            ctx.moveTo(track[0].x, track[0].y);
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 50;
+            ctx.beginPath(); ctx.moveTo(track[0].x, track[0].y);
             for(let i=1; i<track.length; i++) ctx.lineTo(track[i].x, track[i].y);
             ctx.stroke();
         }
 
         track.forEach((p, index) => {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-            ctx.fillStyle = p.color; ctx.fill();
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill();
             if(index === player.currentPlanetIndex) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.stroke(); }
             if(p.isFinish) { ctx.fillStyle = 'white'; ctx.fillText("FINISH", p.x-25, p.y+5); }
         });
@@ -455,22 +532,36 @@
             ctx.fillStyle = "white"; ctx.font = "12px Arial"; ctx.fillText(b.name, b.x-20, b.y-30);
         });
 
-        for (let id in opponents) {
-            if(id !== socket.id) drawRocket(opponents[id].x, opponents[id].y, opponents[id].angle, '#ff4444', false);
-        }
+        for (let id in opponents) { if(id !== socket.id) drawRocket(opponents[id].x, opponents[id].y, opponents[id].angle, '#ff4444', false); }
 
         if(!player.dead) {
-            drawRocket(player.x, player.y, player.angle, '#00d2ff', keys.up);
+            // If Turbo, flicker blue/white
+            let color = keys.turbo ? (Math.random()>0.5 ? '#00ffff' : '#fff') : '#00d2ff';
+            drawRocket(player.x, player.y, player.angle, color, keys.up || keys.turbo);
         }
 
         if(track[player.currentPlanetIndex] && !player.dead) {
             let t = track[player.currentPlanetIndex];
             let a = Math.atan2(t.y - player.y, t.x - player.x);
-            ctx.fillStyle = '#ff0';
-            ctx.beginPath();
-            ctx.arc(player.x + Math.cos(a)*100, player.y + Math.sin(a)*100, 6, 0, Math.PI*2);
-            ctx.fill();
+            ctx.fillStyle = '#ff0'; ctx.beginPath(); ctx.arc(player.x + Math.cos(a)*100, player.y + Math.sin(a)*100, 6, 0, Math.PI*2); ctx.fill();
         }
+
+        // 3. FOREGROUND (Parallax Dust)
+        // Reset transform to draw over everything
+        ctx.setTransform(1, 0, 0, 1, 0, 0); 
+        
+        foregroundDust.forEach(d => {
+            // Move based on player speed (gives speed feeling)
+            d.x -= player.vx * 1.5; 
+            d.y -= player.vy * 1.5;
+            
+            // Wrap around screen
+            if(d.x < 0) d.x += width; if(d.x > width) d.x -= width;
+            if(d.y < 0) d.y += height; if(d.y > height) d.y -= height;
+            
+            ctx.fillStyle = 'rgba(200, 200, 255, 0.3)';
+            ctx.fillRect(d.x, d.y, 2, 2);
+        });
 
         ctx.restore();
     }
@@ -484,9 +575,10 @@
         ctx.moveTo(20, 0); ctx.lineTo(-15, 12); ctx.lineTo(-10, 0); ctx.lineTo(-15, -12);
         ctx.fill();
         if(thrusting) {
-            ctx.fillStyle = '#ffaa00';
+            ctx.fillStyle = keys.turbo ? '#00ffff' : '#ffaa00'; // Blue flames for turbo
             ctx.beginPath();
-            ctx.moveTo(-15, 6); ctx.lineTo(-30 - Math.random()*15, 0); ctx.lineTo(-15, -6);
+            let flameLen = keys.turbo ? 50 : 30; // Longer flame for turbo
+            ctx.moveTo(-15, 6); ctx.lineTo(-flameLen - Math.random()*15, 0); ctx.lineTo(-15, -6);
             ctx.fill();
         }
         ctx.restore();
@@ -507,17 +599,17 @@
             });
             
             if(i > 0 && i < 19) {
-                if(Math.random() < 0.3) {
+                let r = Math.random();
+                if(r < 0.25) {
                     hazards.push({ type: 'blackhole', x: startX + (Math.random()-0.5)*400, y: startY - 250 });
-                } else if (Math.random() < 0.6) {
+                } else if (r < 0.5) {
                     hazards.push({ 
-                        type: 'meteor', 
-                        radius: 20+Math.random()*20, 
-                        x: startX + (Math.random()-0.5)*300, 
-                        y: startY - 300,
-                        vx: (Math.random() - 0.5) * 3, 
-                        vy: (Math.random() - 0.5) * 3
+                        type: 'meteor', radius: 20+Math.random()*20, x: startX + (Math.random()-0.5)*300, y: startY - 300,
+                        vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3
                     });
+                } else if (r < 0.65) {
+                    // WORMHOLES
+                    hazards.push({ type: 'wormhole', x: startX + (Math.random()-0.5)*500, y: startY - 100 });
                 }
             }
             startX += (Math.random() - 0.5) * 1500;
@@ -541,14 +633,14 @@
         player.currentPlanetIndex = 1;
         player.finished = false;
         player.dead = false;
-        screenShake = 0; // Reset shake
+        screenShake = 0; 
         gameState = 'playing';
         showMenu(null);
     }
 
     function crashGame(reason) {
         player.dead = true;
-        screenShake = 50; // MASSIVE SHAKE (result is 200px jitter)
+        screenShake = 50; 
         createExplosion(player.x, player.y);
         document.getElementById('crashReason').innerText = reason;
         setTimeout(() => showMenu('crashMenu'), 1500);
