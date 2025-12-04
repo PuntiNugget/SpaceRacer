@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Fair Play Edition</title>
+    <title>Stellar Drift: Mirror Match</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0b0d17; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
@@ -65,7 +65,7 @@
 <div id="ui">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Race against skill-based AI (Same Speed, Different Brains)</p>
+        <p>Mirror Match: AI has your EXACT stats.</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Multiplayer</button>
         <button class="secondary" onclick="showMenu('shopMenu')">Upgrade Ship</button>
@@ -192,7 +192,6 @@
             updateHazards(); 
             calculateRank();
 
-            // Multiplayer Sync
             if(roomCode) {
                 socket.emit('playerMove', { room: roomCode, x: player.x, y: player.y, angle: player.angle });
             }
@@ -208,35 +207,32 @@
 
     // --- PHYSICS & LOGIC ---
 
-    function getPlayerMaxSpeed() {
-        return 7 + (stats.speedLvl * 1.5);
-    }
+    // Stats Formulas
+    function getPlayerMaxSpeed() { return 7 + (stats.speedLvl * 1.5); }
+    function getPlayerAccel() { return 0.2 + (stats.speedLvl * 0.02); }
+    function getPlayerTurnSpeed() { return 0.05 + (stats.handleLvl * 0.005); }
 
     function updatePlayerPhysics() {
         const maxSpeed = getPlayerMaxSpeed();
-        const turnSpeed = 0.05 + (stats.handleLvl * 0.005);
-        let acceleration = 0.2 + (stats.speedLvl * 0.02);
+        const turnSpeed = getPlayerTurnSpeed();
+        let acceleration = getPlayerAccel();
         let friction = 0.96; 
 
         if (keys.shift) friction = 0.995; // Drift
         if (keys.down) friction = 0.90; // Brake
 
-        // Turning
         if(keys.left) player.angle -= turnSpeed;
         if(keys.right) player.angle += turnSpeed;
 
-        // Thrust
         if(keys.up) {
             player.vx += Math.cos(player.angle) * acceleration;
             player.vy += Math.sin(player.angle) * acceleration;
             if(Math.random()>0.5) createParticle(player.x, player.y, player.angle, '#ffa500');
         }
 
-        // Apply Friction
         player.vx *= friction;
         player.vy *= friction;
 
-        // Cap Speed
         let speed = Math.hypot(player.vx, player.vy);
         if (speed > maxSpeed) {
             let ratio = maxSpeed / speed;
@@ -272,8 +268,11 @@
     function updateBots() {
         if(roomCode) return; 
 
-        // ALL bots share the exact same physical max speed as the player
-        const baseMaxSpeed = getPlayerMaxSpeed(); 
+        // --- EQUAL STATS ENFORCEMENT ---
+        // Bots now use exactly the same stats as the player
+        const sharedMaxSpeed = getPlayerMaxSpeed();
+        const sharedAccel = getPlayerAccel();
+        const sharedTurnSpeed = getPlayerTurnSpeed();
 
         bots.forEach(bot => {
             if(bot.finished) return;
@@ -281,12 +280,10 @@
             let target = track[bot.currentPlanetIndex];
             
             // --- 1. DETERMINE TARGET POSITION ---
-            // Experts aim for the planet. Noobs aim vaguely near it.
             let tx = target.x;
             let ty = target.y;
 
-            // Playstyle: Hazard Avoidance
-            // Apex (Expert) actively looks for moving meteors
+            // Hazard Avoidance (Only Experts do this efficiently)
             if(bot.type === 'expert' || (bot.type === 'adaptive' && bot.adaptiveState === 'expert')) {
                 let nearest = null;
                 let minDist = 300;
@@ -294,13 +291,10 @@
                     let d = Math.hypot(bot.x - h.x, bot.y - h.y);
                     if(d < minDist) { minDist = d; nearest = h; }
                 });
-                
                 if(nearest) {
-                    // Steer away from hazard
                     let angleToHazard = Math.atan2(nearest.y - bot.y, nearest.x - bot.x);
-                    // Add a virtual repulsion force to target angle
-                    tx -= Math.cos(angleToHazard) * 300;
-                    ty -= Math.sin(angleToHazard) * 300;
+                    tx -= Math.cos(angleToHazard) * 350;
+                    ty -= Math.sin(angleToHazard) * 350;
                 }
             }
 
@@ -309,9 +303,8 @@
             let dy = ty - bot.y;
             let targetAngle = Math.atan2(dy, dx);
             
-            // Playstyle: Steering Error (The "Noob" Factor)
+            // Playstyle: Wobble (The Noob Factor)
             if(bot.wobble > 0) {
-                // Add random noise to steering
                 targetAngle += (Math.random() - 0.5) * bot.wobble;
             }
 
@@ -319,54 +312,48 @@
             while (diff < -Math.PI) diff += Math.PI * 2;
             while (diff > Math.PI) diff -= Math.PI * 2;
 
-            bot.angle += diff * bot.turnSkill;
+            // USE PLAYER SHARED TURN SPEED
+            bot.angle += diff * sharedTurnSpeed;
 
             // --- 3. ACCELERATION ---
-            // Everyone has same max speed, but handling differs
-            bot.vx += Math.cos(bot.angle) * 0.2;
-            bot.vy += Math.sin(bot.angle) * 0.2;
+            // USE PLAYER SHARED ACCELERATION
+            bot.vx += Math.cos(bot.angle) * sharedAccel;
+            bot.vy += Math.sin(bot.angle) * sharedAccel;
+            
             bot.vx *= 0.96;
             bot.vy *= 0.96;
 
-            // Cap Speed (EQUAL FOR EVERYONE)
+            // USE PLAYER SHARED MAX SPEED
             let speed = Math.hypot(bot.vx, bot.vy);
-            if (speed > baseMaxSpeed) {
-                bot.vx = (bot.vx / speed) * baseMaxSpeed;
-                bot.vy = (bot.vy / speed) * baseMaxSpeed;
+            if (speed > sharedMaxSpeed) {
+                bot.vx = (bot.vx / speed) * sharedMaxSpeed;
+                bot.vy = (bot.vy / speed) * sharedMaxSpeed;
             }
 
             bot.x += bot.vx;
             bot.y += bot.vy;
 
-            // --- 4. ADAPTIVE LOGIC (Shadow) ---
+            // --- 4. ADAPTIVE LOGIC ---
             if(bot.type === 'adaptive') {
                 let myScore = (track.length - player.currentPlanetIndex)*1000 + Math.hypot(track[player.currentPlanetIndex].x - player.x, track[player.currentPlanetIndex].y - player.y);
                 let botScore = (track.length - bot.currentPlanetIndex)*1000 + Math.hypot(track[bot.currentPlanetIndex].x - bot.x, track[bot.currentPlanetIndex].y - bot.y);
                 
                 if(botScore < myScore - 500) {
-                    // Bot is winning too hard -> Become a noob
                     bot.adaptiveState = 'noob';
-                    bot.wobble = 0.8; // Start driving drunk
+                    bot.wobble = 1.2; // Drive very poorly
                 } else if (botScore > myScore + 500) {
-                    // Bot is losing -> Become an expert
                     bot.adaptiveState = 'expert';
-                    bot.wobble = 0.0; // Drive perfect
+                    bot.wobble = 0.0; // Drive perfectly
                 }
             }
-
             checkCheckpoints(bot);
         });
     }
 
     function updateHazards() {
         hazards.forEach(h => {
-            // MOVE METEORS
-            if(h.type === 'meteor') {
-                h.x += h.vx;
-                h.y += h.vy;
-            }
+            if(h.type === 'meteor') { h.x += h.vx; h.y += h.vy; }
 
-            // COLLISION WITH PLAYER
             if(!player.dead) {
                 let dx = player.x - h.x;
                 let dy = player.y - h.y;
@@ -403,13 +390,11 @@
         ctx.save();
         ctx.translate(-camera.x, -camera.y);
 
-        // Stars
         ctx.fillStyle = 'white';
         for(let i=0; i<150; i++) {
             ctx.fillRect(((i*137)%3000 + player.x*0.1), ((i*94)%3000 + player.y*0.1), Math.random()*2, Math.random()*2);
         }
 
-        // Hazards
         hazards.forEach(h => {
             if(h.type === 'blackhole') {
                 ctx.save();
@@ -427,7 +412,6 @@
             }
         });
 
-        // Particles
         particles.forEach((p, i) => {
             p.x += p.vx; p.y += p.vy; p.life -= 0.05;
             if(p.life <= 0) particles.splice(i, 1);
@@ -437,7 +421,6 @@
             ctx.globalAlpha = 1;
         });
 
-        // Track
         if(track.length > 0) {
             ctx.strokeStyle = 'rgba(255,255,255,0.1)';
             ctx.lineWidth = 50;
@@ -455,23 +438,19 @@
             if(p.isFinish) { ctx.fillStyle = 'white'; ctx.fillText("FINISH", p.x-25, p.y+5); }
         });
 
-        // Bots
         bots.forEach(b => {
-            drawRocket(b.x, b.y, b.angle, b.color, true); // True = always thrusting
+            drawRocket(b.x, b.y, b.angle, b.color, true); 
             ctx.fillStyle = "white"; ctx.font = "12px Arial"; ctx.fillText(b.name, b.x-20, b.y-30);
         });
 
-        // MP Opponents
         for (let id in opponents) {
             if(id !== socket.id) drawRocket(opponents[id].x, opponents[id].y, opponents[id].angle, '#ff4444', false);
         }
 
-        // Player
         if(!player.dead) {
             drawRocket(player.x, player.y, player.angle, '#00d2ff', keys.up);
         }
 
-        // Guide Arrow
         if(track[player.currentPlanetIndex] && !player.dead) {
             let t = track[player.currentPlanetIndex];
             let a = Math.atan2(t.y - player.y, t.x - player.x);
@@ -519,13 +498,12 @@
                 if(Math.random() < 0.3) {
                     hazards.push({ type: 'blackhole', x: startX + (Math.random()-0.5)*400, y: startY - 250 });
                 } else if (Math.random() < 0.6) {
-                    // METEORS NOW HAVE VELOCITY
                     hazards.push({ 
                         type: 'meteor', 
                         radius: 20+Math.random()*20, 
                         x: startX + (Math.random()-0.5)*300, 
                         y: startY - 300,
-                        vx: (Math.random() - 0.5) * 3, // Moving
+                        vx: (Math.random() - 0.5) * 3, 
                         vy: (Math.random() - 0.5) * 3
                     });
                 }
@@ -534,18 +512,13 @@
             startY -= (600 + Math.random() * 300);
         }
 
-        // --- BOTS CONFIG (FAIR SPEED) ---
-        // They all use 'getPlayerMaxSpeed()' in the loop.
-        // Difference is turnSkill and wobble (error rate)
+        // BOTS:
+        // Turn skill isn't stats anymore, it's playstyle. 
+        // Stats are now calculated in loop from player's levels.
         bots = [
-            // Rusty: High wobble (drunk driving), low turn skill
-            { name: "Rusty (Noob)", type: 'noob', color: '#66ff66', x: 450, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, turnSkill: 0.03, wobble: 0.5 },
-            
-            // Apex: No wobble, perfect turn skill
-            { name: "Apex (Expert)", type: 'expert', color: '#ff3333', x: 350, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, turnSkill: 0.08, wobble: 0.0 },
-            
-            // Shadow: Changes wobble based on if it's winning or losing
-            { name: "Shadow (Adapt)", type: 'adaptive', adaptiveState: 'expert', color: '#aa33ff', x: 400, y: 350, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, turnSkill: 0.06, wobble: 0.0 }
+            { name: "Rusty (Noob)", type: 'noob', color: '#66ff66', x: 450, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.6 },
+            { name: "Apex (Expert)", type: 'expert', color: '#ff3333', x: 350, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0 },
+            { name: "Shadow (Adapt)", type: 'adaptive', adaptiveState: 'expert', color: '#aa33ff', x: 400, y: 350, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0 }
         ];
 
         startGame(track);
