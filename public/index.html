@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Chaos Edition</title>
+    <title>Stellar Drift: Total Chaos</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
@@ -68,7 +68,7 @@
 <div id="ui">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Chaos Edition: Bots Turbo & Crash</p>
+        <p>Total Chaos: Any bot might crash.</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Multiplayer</button>
         <button class="secondary" onclick="showMenu('shopMenu')">Upgrade Ship</button>
@@ -634,12 +634,13 @@
             { name: "Shadow (Adapt)", type: 'adaptive', adaptiveState: 'expert', color: '#aa33ff', x: 400, y: 350, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0, turbo: false, spinning: false, dead: false }
         ];
 
-        // 50% Chance to doom a bot
-        if(Math.random() < 0.5) {
-            let victim = bots[Math.floor(Math.random() * bots.length)];
-            victim.isDoomed = true;
-            console.log(victim.name + " is doomed to crash!");
-        }
+        // 10% Chance for EACH bot to be doomed individually
+        bots.forEach(bot => {
+            if(Math.random() < 0.1) {
+                bot.isDoomed = true;
+                console.log(bot.name + " is doomed to crash!");
+            }
+        });
 
         startGame(track);
     }
