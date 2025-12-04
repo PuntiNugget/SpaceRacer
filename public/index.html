@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Total Chaos</title>
+    <title>Stellar Drift: Planet Counter</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
@@ -56,6 +56,7 @@
 <div class="hud">
     <div>POINTS: <span id="scoreDisplay" style="color:#00d2ff">0</span></div>
     <div>POS: <span id="currentRank">1/4</span></div>
+    <div>PLANETS: <span id="planetCounter" style="color:#ffee00">0/0</span></div>
 </div>
 
 <div id="warpMessage" class="warp-msg">WORMHOLE TRAVEL!</div>
@@ -202,6 +203,14 @@
     }
     updateUI();
 
+    function updatePlanetCounter() {
+        if(track.length > 0) {
+            // Planet 1 is actually the second item in array (0 is start).
+            // So currentPlanetIndex is literally the count we are targeting.
+            document.getElementById('planetCounter').innerText = player.currentPlanetIndex + " / " + track.length;
+        }
+    }
+
     // --- MAIN LOOP ---
     function gameLoop() {
         ctx.fillStyle = '#050508';
@@ -287,9 +296,14 @@
             if (dist < target.radius + 30) {
                 if (entity.currentPlanetIndex < track.length - 1) {
                     entity.currentPlanetIndex++;
+                    // Update HUD if player
+                    if(entity === player) updatePlanetCounter();
                 } else {
                     entity.finished = true;
-                    if(entity === player) finishRace();
+                    if(entity === player) {
+                        updatePlanetCounter();
+                        finishRace();
+                    }
                 }
             }
         }
@@ -413,7 +427,7 @@
             bot.x += bot.vx;
             bot.y += bot.vy;
             
-            // Randomly start spinning (The 50% chance Doom bots do this more often)
+            // Randomly start spinning (The 10% chance Doom bots do this more often)
             if(bot.isDoomed && Math.random() < 0.005) {
                 bot.spinning = true;
                 setTimeout(() => bot.spinning = false, 2000); // Spin for 2 seconds
@@ -502,6 +516,7 @@
         createExplosion(entity.x, entity.y);
         
         if(entity === player) {
+            updatePlanetCounter();
             screenShake = 30;
             const msg = document.getElementById('warpMessage');
             msg.style.display = 'block';
@@ -656,6 +671,7 @@
         screenShake = 0; 
         gameState = 'playing';
         showMenu(null);
+        updatePlanetCounter();
     }
 
     function crashGame(reason) {
