@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Mirror Match</title>
+    <title>Stellar Drift: Shake & Chaos</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0b0d17; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
@@ -58,14 +58,13 @@
 </div>
 
 <div class="controls-hint">
-    <b>WASD / ARROWS</b> to Drive &bull; <b>S</b> to Brake &bull; <b>SHIFT</b> to Drift
-    <br> <span style="color:#ff3333">DODGE THE MOVING METEORS</span>
+    <b>WASD</b> to Drive &bull; <b>SHIFT</b> to Drift &bull; <b>S</b> to Brake
 </div>
 
 <div id="ui">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Mirror Match: AI has your EXACT stats.</p>
+        <p>Expert bots are perfect. Noob bots are disasters.</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Multiplayer</button>
         <button class="secondary" onclick="showMenu('shopMenu')">Upgrade Ship</button>
@@ -124,11 +123,14 @@
     let roomCode = null;
     let isHost = false;
     
-    // Game Entities
-    let opponents = {}; // Multiplayer humans
-    let bots = [];      // Singleplayer AI
-    let hazards = [];   // Meteors & Black Holes
-    let particles = []; // Visual effects
+    // Entities
+    let opponents = {}; 
+    let bots = [];      
+    let hazards = [];   
+    let particles = []; 
+    
+    // Camera Shake
+    let screenShake = 0;
 
     // Player Data
     let stats = {
@@ -207,7 +209,6 @@
 
     // --- PHYSICS & LOGIC ---
 
-    // Stats Formulas
     function getPlayerMaxSpeed() { return 7 + (stats.speedLvl * 1.5); }
     function getPlayerAccel() { return 0.2 + (stats.speedLvl * 0.02); }
     function getPlayerTurnSpeed() { return 0.05 + (stats.handleLvl * 0.005); }
@@ -218,7 +219,10 @@
         let acceleration = getPlayerAccel();
         let friction = 0.96; 
 
-        if (keys.shift) friction = 0.995; // Drift
+        if (keys.shift) {
+            friction = 0.995; // Drift
+            screenShake = Math.max(screenShake, 1.5); // Drift shake
+        }
         if (keys.down) friction = 0.90; // Brake
 
         if(keys.left) player.angle -= turnSpeed;
@@ -228,6 +232,7 @@
             player.vx += Math.cos(player.angle) * acceleration;
             player.vy += Math.sin(player.angle) * acceleration;
             if(Math.random()>0.5) createParticle(player.x, player.y, player.angle, '#ffa500');
+            screenShake = Math.max(screenShake, 0.5); // Engine vibration
         }
 
         player.vx *= friction;
@@ -243,8 +248,16 @@
         player.x += player.vx;
         player.y += player.vy;
 
-        camera.x = player.x - width/2;
-        camera.y = player.y - height/2;
+        // Camera Logic (with Shake)
+        if(screenShake > 0) screenShake *= 0.9; // Decay
+        if(screenShake < 0.1) screenShake = 0;
+        
+        // Apply random offset
+        let shakeX = (Math.random() - 0.5) * screenShake * 4;
+        let shakeY = (Math.random() - 0.5) * screenShake * 4;
+
+        camera.x = player.x - width/2 + shakeX;
+        camera.y = player.y - height/2 + shakeY;
 
         checkCheckpoints(player);
     }
@@ -268,8 +281,6 @@
     function updateBots() {
         if(roomCode) return; 
 
-        // --- EQUAL STATS ENFORCEMENT ---
-        // Bots now use exactly the same stats as the player
         const sharedMaxSpeed = getPlayerMaxSpeed();
         const sharedAccel = getPlayerAccel();
         const sharedTurnSpeed = getPlayerTurnSpeed();
@@ -278,15 +289,18 @@
             if(bot.finished) return;
 
             let target = track[bot.currentPlanetIndex];
-            
-            // --- 1. DETERMINE TARGET POSITION ---
             let tx = target.x;
             let ty = target.y;
 
-            // Hazard Avoidance (Only Experts do this efficiently)
+            // NOOB LOGIC: Randomly "Panic" (Stop accelerating)
+            let isPanicking = false;
+            if(bot.type === 'noob' && Math.random() < 0.05) {
+                isPanicking = true;
+            }
+
+            // Expert Hazard Avoidance
             if(bot.type === 'expert' || (bot.type === 'adaptive' && bot.adaptiveState === 'expert')) {
-                let nearest = null;
-                let minDist = 300;
+                let nearest = null, minDist = 300;
                 hazards.forEach(h => {
                     let d = Math.hypot(bot.x - h.x, bot.y - h.y);
                     if(d < minDist) { minDist = d; nearest = h; }
@@ -298,32 +312,34 @@
                 }
             }
 
-            // --- 2. STEERING ---
+            // Steering
             let dx = tx - bot.x;
             let dy = ty - bot.y;
             let targetAngle = Math.atan2(dy, dx);
             
-            // Playstyle: Wobble (The Noob Factor)
+            // WOBBLE LOGIC
+            // Noobs now have huge, jerky wobble
             if(bot.wobble > 0) {
-                targetAngle += (Math.random() - 0.5) * bot.wobble;
+                // Occasionally reverse direction completely (Major Noob Move)
+                if(Math.random() < 0.01) targetAngle += Math.PI; 
+                else targetAngle += (Math.random() - 0.5) * bot.wobble;
             }
 
             let diff = targetAngle - bot.angle;
             while (diff < -Math.PI) diff += Math.PI * 2;
             while (diff > Math.PI) diff -= Math.PI * 2;
 
-            // USE PLAYER SHARED TURN SPEED
             bot.angle += diff * sharedTurnSpeed;
 
-            // --- 3. ACCELERATION ---
-            // USE PLAYER SHARED ACCELERATION
-            bot.vx += Math.cos(bot.angle) * sharedAccel;
-            bot.vy += Math.sin(bot.angle) * sharedAccel;
+            // Acceleration
+            if(!isPanicking) {
+                bot.vx += Math.cos(bot.angle) * sharedAccel;
+                bot.vy += Math.sin(bot.angle) * sharedAccel;
+            }
             
             bot.vx *= 0.96;
             bot.vy *= 0.96;
 
-            // USE PLAYER SHARED MAX SPEED
             let speed = Math.hypot(bot.vx, bot.vy);
             if (speed > sharedMaxSpeed) {
                 bot.vx = (bot.vx / speed) * sharedMaxSpeed;
@@ -333,18 +349,13 @@
             bot.x += bot.vx;
             bot.y += bot.vy;
 
-            // --- 4. ADAPTIVE LOGIC ---
+            // Adaptive Logic
             if(bot.type === 'adaptive') {
                 let myScore = (track.length - player.currentPlanetIndex)*1000 + Math.hypot(track[player.currentPlanetIndex].x - player.x, track[player.currentPlanetIndex].y - player.y);
                 let botScore = (track.length - bot.currentPlanetIndex)*1000 + Math.hypot(track[bot.currentPlanetIndex].x - bot.x, track[bot.currentPlanetIndex].y - bot.y);
                 
-                if(botScore < myScore - 500) {
-                    bot.adaptiveState = 'noob';
-                    bot.wobble = 1.2; // Drive very poorly
-                } else if (botScore > myScore + 500) {
-                    bot.adaptiveState = 'expert';
-                    bot.wobble = 0.0; // Drive perfectly
-                }
+                if(botScore < myScore - 500) { bot.adaptiveState = 'noob'; bot.wobble = 1.5; } 
+                else if (botScore > myScore + 500) { bot.adaptiveState = 'expert'; bot.wobble = 0.0; }
             }
             checkCheckpoints(bot);
         });
@@ -361,6 +372,7 @@
 
                 if(h.type === 'blackhole') {
                     if(dist < 400) { 
+                        screenShake = Math.max(screenShake, (400-dist)/50); // Shake near blackhole
                         let force = 2500 / (dist * dist); 
                         player.vx -= (dx / dist) * force;
                         player.vy -= (dy / dist) * force;
@@ -512,12 +524,12 @@
             startY -= (600 + Math.random() * 300);
         }
 
-        // BOTS:
-        // Turn skill isn't stats anymore, it's playstyle. 
-        // Stats are now calculated in loop from player's levels.
         bots = [
-            { name: "Rusty (Noob)", type: 'noob', color: '#66ff66', x: 450, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.6 },
+            // Rusty: High wobble, drives weirdly
+            { name: "Rusty (Noob)", type: 'noob', color: '#66ff66', x: 450, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 1.2 },
+            // Apex: No wobble, plays smart
             { name: "Apex (Expert)", type: 'expert', color: '#ff3333', x: 350, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0 },
+            // Shadow: Adapts
             { name: "Shadow (Adapt)", type: 'adaptive', adaptiveState: 'expert', color: '#aa33ff', x: 400, y: 350, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0 }
         ];
 
@@ -538,6 +550,7 @@
 
     function crashGame(reason) {
         player.dead = true;
+        screenShake = 20; // Massive impact shake
         createExplosion(player.x, player.y);
         document.getElementById('crashReason').innerText = reason;
         setTimeout(() => showMenu('crashMenu'), 1000);
