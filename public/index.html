@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Shake & Chaos</title>
+    <title>Stellar Drift: IMPACT</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0b0d17; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
@@ -45,7 +45,7 @@
         .hud { position: absolute; top: 20px; left: 20px; font-size: 18px; font-weight: bold; color: #fff; pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
         .controls-hint { position: absolute; bottom: 30px; width: 100%; text-align: center; color: #888; font-size: 14px; pointer-events: none; }
         
-        .crash-title { color: #ff3333; font-size: 40px; margin-bottom: 10px; }
+        .crash-title { color: #ff3333; font-size: 40px; margin-bottom: 10px; text-transform: uppercase; font-weight: 900; letter-spacing: 5px; }
     </style>
 </head>
 <body>
@@ -64,7 +64,7 @@
 <div id="ui">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Expert bots are perfect. Noob bots are disasters.</p>
+        <p>Impact Edition</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Multiplayer</button>
         <button class="secondary" onclick="showMenu('shopMenu')">Upgrade Ship</button>
@@ -105,7 +105,7 @@
     </div>
 
     <div id="crashMenu" class="menu-box">
-        <h1 class="crash-title">DESTROYED</h1>
+        <h1 class="crash-title">WASTED</h1>
         <p id="crashReason" style="color:#aaa;">You hit a hazard.</p>
         <button onclick="showMenu('mainMenu')">Reassemble Ship</button>
     </div>
@@ -188,15 +188,21 @@
         ctx.fillStyle = '#050510';
         ctx.fillRect(0, 0, width, height);
 
-        if (gameState === 'playing' && !player.dead) {
-            updatePlayerPhysics();
+        if (gameState === 'playing') {
+            
+            // Only update physics if alive
+            if(!player.dead) {
+                updatePlayerPhysics();
+                calculateRank();
+                if(roomCode) socket.emit('playerMove', { room: roomCode, x: player.x, y: player.y, angle: player.angle });
+            }
+
+            // Always run environment
             updateBots();
             updateHazards(); 
-            calculateRank();
-
-            if(roomCode) {
-                socket.emit('playerMove', { room: roomCode, x: player.x, y: player.y, angle: player.angle });
-            }
+            
+            // Always run camera (so it can shake after death)
+            updateCamera();
         }
 
         if(gameState === 'playing' || gameState === 'finished' || player.dead) {
@@ -213,6 +219,20 @@
     function getPlayerAccel() { return 0.2 + (stats.speedLvl * 0.02); }
     function getPlayerTurnSpeed() { return 0.05 + (stats.handleLvl * 0.005); }
 
+    function updateCamera() {
+        // Decay Shake
+        if(screenShake > 0) screenShake *= 0.9; 
+        if(screenShake < 0.1) screenShake = 0;
+        
+        // Apply offset
+        // Multiply by 4 so a shake of 50 = 200px deviation
+        let shakeX = (Math.random() - 0.5) * screenShake * 4;
+        let shakeY = (Math.random() - 0.5) * screenShake * 4;
+
+        camera.x = player.x - width/2 + shakeX;
+        camera.y = player.y - height/2 + shakeY;
+    }
+
     function updatePlayerPhysics() {
         const maxSpeed = getPlayerMaxSpeed();
         const turnSpeed = getPlayerTurnSpeed();
@@ -220,10 +240,10 @@
         let friction = 0.96; 
 
         if (keys.shift) {
-            friction = 0.995; // Drift
-            screenShake = Math.max(screenShake, 1.5); // Drift shake
+            friction = 0.995; 
+            screenShake = Math.max(screenShake, 1.5); // Drift rumble
         }
-        if (keys.down) friction = 0.90; // Brake
+        if (keys.down) friction = 0.90; 
 
         if(keys.left) player.angle -= turnSpeed;
         if(keys.right) player.angle += turnSpeed;
@@ -232,7 +252,7 @@
             player.vx += Math.cos(player.angle) * acceleration;
             player.vy += Math.sin(player.angle) * acceleration;
             if(Math.random()>0.5) createParticle(player.x, player.y, player.angle, '#ffa500');
-            screenShake = Math.max(screenShake, 0.5); // Engine vibration
+            screenShake = Math.max(screenShake, 0.5); // Engine rumble
         }
 
         player.vx *= friction;
@@ -247,17 +267,6 @@
 
         player.x += player.vx;
         player.y += player.vy;
-
-        // Camera Logic (with Shake)
-        if(screenShake > 0) screenShake *= 0.9; // Decay
-        if(screenShake < 0.1) screenShake = 0;
-        
-        // Apply random offset
-        let shakeX = (Math.random() - 0.5) * screenShake * 4;
-        let shakeY = (Math.random() - 0.5) * screenShake * 4;
-
-        camera.x = player.x - width/2 + shakeX;
-        camera.y = player.y - height/2 + shakeY;
 
         checkCheckpoints(player);
     }
@@ -292,13 +301,10 @@
             let tx = target.x;
             let ty = target.y;
 
-            // NOOB LOGIC: Randomly "Panic" (Stop accelerating)
             let isPanicking = false;
-            if(bot.type === 'noob' && Math.random() < 0.05) {
-                isPanicking = true;
-            }
+            // Noob Panic (5% chance every frame to stop moving)
+            if(bot.type === 'noob' && Math.random() < 0.05) isPanicking = true;
 
-            // Expert Hazard Avoidance
             if(bot.type === 'expert' || (bot.type === 'adaptive' && bot.adaptiveState === 'expert')) {
                 let nearest = null, minDist = 300;
                 hazards.forEach(h => {
@@ -312,15 +318,11 @@
                 }
             }
 
-            // Steering
             let dx = tx - bot.x;
             let dy = ty - bot.y;
             let targetAngle = Math.atan2(dy, dx);
             
-            // WOBBLE LOGIC
-            // Noobs now have huge, jerky wobble
             if(bot.wobble > 0) {
-                // Occasionally reverse direction completely (Major Noob Move)
                 if(Math.random() < 0.01) targetAngle += Math.PI; 
                 else targetAngle += (Math.random() - 0.5) * bot.wobble;
             }
@@ -331,7 +333,6 @@
 
             bot.angle += diff * sharedTurnSpeed;
 
-            // Acceleration
             if(!isPanicking) {
                 bot.vx += Math.cos(bot.angle) * sharedAccel;
                 bot.vy += Math.sin(bot.angle) * sharedAccel;
@@ -349,7 +350,6 @@
             bot.x += bot.vx;
             bot.y += bot.vy;
 
-            // Adaptive Logic
             if(bot.type === 'adaptive') {
                 let myScore = (track.length - player.currentPlanetIndex)*1000 + Math.hypot(track[player.currentPlanetIndex].x - player.x, track[player.currentPlanetIndex].y - player.y);
                 let botScore = (track.length - bot.currentPlanetIndex)*1000 + Math.hypot(track[bot.currentPlanetIndex].x - bot.x, track[bot.currentPlanetIndex].y - bot.y);
@@ -372,7 +372,7 @@
 
                 if(h.type === 'blackhole') {
                     if(dist < 400) { 
-                        screenShake = Math.max(screenShake, (400-dist)/50); // Shake near blackhole
+                        screenShake = Math.max(screenShake, (400-dist)/50); 
                         let force = 2500 / (dist * dist); 
                         player.vx -= (dx / dist) * force;
                         player.vy -= (dy / dist) * force;
@@ -525,11 +525,8 @@
         }
 
         bots = [
-            // Rusty: High wobble, drives weirdly
             { name: "Rusty (Noob)", type: 'noob', color: '#66ff66', x: 450, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 1.2 },
-            // Apex: No wobble, plays smart
             { name: "Apex (Expert)", type: 'expert', color: '#ff3333', x: 350, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0 },
-            // Shadow: Adapts
             { name: "Shadow (Adapt)", type: 'adaptive', adaptiveState: 'expert', color: '#aa33ff', x: 400, y: 350, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, wobble: 0.0 }
         ];
 
@@ -544,16 +541,17 @@
         player.currentPlanetIndex = 1;
         player.finished = false;
         player.dead = false;
+        screenShake = 0; // Reset shake
         gameState = 'playing';
         showMenu(null);
     }
 
     function crashGame(reason) {
         player.dead = true;
-        screenShake = 20; // Massive impact shake
+        screenShake = 50; // MASSIVE SHAKE (result is 200px jitter)
         createExplosion(player.x, player.y);
         document.getElementById('crashReason').innerText = reason;
-        setTimeout(() => showMenu('crashMenu'), 1000);
+        setTimeout(() => showMenu('crashMenu'), 1500);
     }
 
     function createExplosion(x, y) {
