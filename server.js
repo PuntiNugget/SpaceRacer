@@ -1,3 +1,4 @@
+console.log("Attempting to start server...");
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
