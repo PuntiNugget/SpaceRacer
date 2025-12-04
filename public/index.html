@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Space Racer: Hazard Edition</title>
+    <title>Stellar Drift: Fair Play Edition</title>
     <style>
         body { margin: 0; overflow: hidden; background: #0b0d17; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         canvas { display: block; }
@@ -22,7 +22,6 @@
         .visible { display: block; }
 
         h1 { color: #00d2ff; text-transform: uppercase; margin-top: 0; letter-spacing: 2px; }
-        h2 { margin: 5px 0 20px 0; }
         
         button { 
             background: linear-gradient(45deg, #00d2ff, #0078ff); 
@@ -46,9 +45,7 @@
         .hud { position: absolute; top: 20px; left: 20px; font-size: 18px; font-weight: bold; color: #fff; pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
         .controls-hint { position: absolute; bottom: 30px; width: 100%; text-align: center; color: #888; font-size: 14px; pointer-events: none; }
         
-        /* Specific Styles for Crash Screen */
         .crash-title { color: #ff3333; font-size: 40px; margin-bottom: 10px; }
-        .bot-label { position: absolute; color: white; font-size: 10px; pointer-events: none; transform: translate(-50%, -20px); text-shadow: 1px 1px 0 #000; }
     </style>
 </head>
 <body>
@@ -62,13 +59,13 @@
 
 <div class="controls-hint">
     <b>WASD / ARROWS</b> to Drive &bull; <b>S</b> to Brake &bull; <b>SHIFT</b> to Drift
-    <br> <span style="color:#ff3333">AVOID BLACK HOLES AND METEORS</span>
+    <br> <span style="color:#ff3333">DODGE THE MOVING METEORS</span>
 </div>
 
 <div id="ui">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Race against Rusty (Noob), Apex (Expert) & Shadow (Adaptive)</p>
+        <p>Race against skill-based AI (Same Speed, Different Brains)</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Multiplayer</button>
         <button class="secondary" onclick="showMenu('shopMenu')">Upgrade Ship</button>
@@ -192,7 +189,7 @@
         if (gameState === 'playing' && !player.dead) {
             updatePlayerPhysics();
             updateBots();
-            updateHazards(); // Check collisions
+            updateHazards(); 
             calculateRank();
 
             // Multiplayer Sync
@@ -211,25 +208,18 @@
 
     // --- PHYSICS & LOGIC ---
 
+    function getPlayerMaxSpeed() {
+        return 7 + (stats.speedLvl * 1.5);
+    }
+
     function updatePlayerPhysics() {
-        // Base Stats
-        const maxSpeed = 7 + (stats.speedLvl * 1.5);
+        const maxSpeed = getPlayerMaxSpeed();
         const turnSpeed = 0.05 + (stats.handleLvl * 0.005);
         let acceleration = 0.2 + (stats.speedLvl * 0.02);
-        
-        // Handling Logic
-        let friction = 0.96; // Normal space drag
+        let friction = 0.96; 
 
-        if (keys.shift) {
-            // DRIFT MODE: Low friction, keeps momentum, harder to turn
-            friction = 0.995; 
-            // acceleration *= 0.5; // Can't accelerate well while drifting
-        }
-
-        if (keys.down) {
-            // BRAKE MODE
-            friction = 0.90;
-        }
+        if (keys.shift) friction = 0.995; // Drift
+        if (keys.down) friction = 0.90; // Brake
 
         // Turning
         if(keys.left) player.angle -= turnSpeed;
@@ -239,7 +229,6 @@
         if(keys.up) {
             player.vx += Math.cos(player.angle) * acceleration;
             player.vy += Math.sin(player.angle) * acceleration;
-            // Particles
             if(Math.random()>0.5) createParticle(player.x, player.y, player.angle, '#ffa500');
         }
 
@@ -255,123 +244,147 @@
             player.vy *= ratio;
         }
 
-        // Apply Velocity
         player.x += player.vx;
         player.y += player.vy;
 
-        // Camera Follow
         camera.x = player.x - width/2;
         camera.y = player.y - height/2;
 
-        // Checkpoints
+        checkCheckpoints(player);
+    }
+
+    function checkCheckpoints(entity) {
         if (track.length > 0) {
-            let target = track[player.currentPlanetIndex];
-            let dist = Math.hypot(player.x - target.x, player.y - target.y);
+            let target = track[entity.currentPlanetIndex];
+            let dist = Math.hypot(entity.x - target.x, entity.y - target.y);
             
             if (dist < target.radius + 30) {
-                if (player.currentPlanetIndex < track.length - 1) {
-                    player.currentPlanetIndex++;
+                if (entity.currentPlanetIndex < track.length - 1) {
+                    entity.currentPlanetIndex++;
                 } else {
-                    finishRace();
+                    entity.finished = true;
+                    if(entity === player) finishRace();
                 }
             }
         }
     }
 
     function updateBots() {
-        if(roomCode) return; // No bots in multiplayer
+        if(roomCode) return; 
+
+        // ALL bots share the exact same physical max speed as the player
+        const baseMaxSpeed = getPlayerMaxSpeed(); 
 
         bots.forEach(bot => {
             if(bot.finished) return;
 
-            // 1. Identify Target
             let target = track[bot.currentPlanetIndex];
             
-            // 2. Steering Logic
-            let dx = target.x - bot.x;
-            let dy = target.y - bot.y;
-            let dist = Math.hypot(dx, dy);
-            let targetAngle = Math.atan2(dy, dx);
-            
-            // Noob Wobble
-            if(bot.type === 'noob' && Math.random() < 0.05) {
-                targetAngle += (Math.random() - 0.5); 
+            // --- 1. DETERMINE TARGET POSITION ---
+            // Experts aim for the planet. Noobs aim vaguely near it.
+            let tx = target.x;
+            let ty = target.y;
+
+            // Playstyle: Hazard Avoidance
+            // Apex (Expert) actively looks for moving meteors
+            if(bot.type === 'expert' || (bot.type === 'adaptive' && bot.adaptiveState === 'expert')) {
+                let nearest = null;
+                let minDist = 300;
+                hazards.forEach(h => {
+                    let d = Math.hypot(bot.x - h.x, bot.y - h.y);
+                    if(d < minDist) { minDist = d; nearest = h; }
+                });
+                
+                if(nearest) {
+                    // Steer away from hazard
+                    let angleToHazard = Math.atan2(nearest.y - bot.y, nearest.x - bot.x);
+                    // Add a virtual repulsion force to target angle
+                    tx -= Math.cos(angleToHazard) * 300;
+                    ty -= Math.sin(angleToHazard) * 300;
+                }
             }
 
-            // Calculate angle difference
+            // --- 2. STEERING ---
+            let dx = tx - bot.x;
+            let dy = ty - bot.y;
+            let targetAngle = Math.atan2(dy, dx);
+            
+            // Playstyle: Steering Error (The "Noob" Factor)
+            if(bot.wobble > 0) {
+                // Add random noise to steering
+                targetAngle += (Math.random() - 0.5) * bot.wobble;
+            }
+
             let diff = targetAngle - bot.angle;
             while (diff < -Math.PI) diff += Math.PI * 2;
             while (diff > Math.PI) diff -= Math.PI * 2;
 
-            bot.angle += diff * bot.turnSpeed;
+            bot.angle += diff * bot.turnSkill;
 
-            // 3. Adaptive Speed Logic
-            let topSpeed = bot.maxSpeed;
-            if(bot.type === 'adaptive') {
-                // Calculate distance to end for player vs bot
-                let playerDistToEnd = (track.length - player.currentPlanetIndex) * 1000 + Math.hypot(track[track.length-1].x - player.x, track[track.length-1].y - player.y);
-                let botDistToEnd = (track.length - bot.currentPlanetIndex) * 1000 + dist;
-                
-                // If Bot is ahead (distance is smaller), slow down. If Bot is behind, speed up.
-                if(botDistToEnd < playerDistToEnd - 500) topSpeed *= 0.7; // Wait up
-                if(botDistToEnd > playerDistToEnd + 500) topSpeed *= 1.3; // Catch up
-            }
-
-            // 4. Move
-            bot.vx += Math.cos(bot.angle) * bot.accel;
-            bot.vy += Math.sin(bot.angle) * bot.accel;
+            // --- 3. ACCELERATION ---
+            // Everyone has same max speed, but handling differs
+            bot.vx += Math.cos(bot.angle) * 0.2;
+            bot.vy += Math.sin(bot.angle) * 0.2;
             bot.vx *= 0.96;
             bot.vy *= 0.96;
 
-            // Cap Speed
+            // Cap Speed (EQUAL FOR EVERYONE)
             let speed = Math.hypot(bot.vx, bot.vy);
-            if (speed > topSpeed) {
-                bot.vx = (bot.vx / speed) * topSpeed;
-                bot.vy = (bot.vy / speed) * topSpeed;
+            if (speed > baseMaxSpeed) {
+                bot.vx = (bot.vx / speed) * baseMaxSpeed;
+                bot.vy = (bot.vy / speed) * baseMaxSpeed;
             }
 
             bot.x += bot.vx;
             bot.y += bot.vy;
 
-            // 5. Bot Checkpoints
-            if(dist < target.radius + 30) {
-                if(bot.currentPlanetIndex < track.length - 1) {
-                    bot.currentPlanetIndex++;
-                } else {
-                    bot.finished = true;
+            // --- 4. ADAPTIVE LOGIC (Shadow) ---
+            if(bot.type === 'adaptive') {
+                let myScore = (track.length - player.currentPlanetIndex)*1000 + Math.hypot(track[player.currentPlanetIndex].x - player.x, track[player.currentPlanetIndex].y - player.y);
+                let botScore = (track.length - bot.currentPlanetIndex)*1000 + Math.hypot(track[bot.currentPlanetIndex].x - bot.x, track[bot.currentPlanetIndex].y - bot.y);
+                
+                if(botScore < myScore - 500) {
+                    // Bot is winning too hard -> Become a noob
+                    bot.adaptiveState = 'noob';
+                    bot.wobble = 0.8; // Start driving drunk
+                } else if (botScore > myScore + 500) {
+                    // Bot is losing -> Become an expert
+                    bot.adaptiveState = 'expert';
+                    bot.wobble = 0.0; // Drive perfect
                 }
             }
+
+            checkCheckpoints(bot);
         });
     }
 
     function updateHazards() {
-        if(roomCode) return; // No hazards in MP for simplicity
-        
         hazards.forEach(h => {
-            let dx = player.x - h.x;
-            let dy = player.y - h.y;
-            let dist = Math.hypot(dx, dy);
-
-            // Black Hole Gravity
-            if(h.type === 'blackhole') {
-                if(dist < 400) { // Gravity Range
-                    let force = 2500 / (dist * dist); // Inverse square law
-                    // Pull player towards hole
-                    player.vx -= (dx / dist) * force;
-                    player.vy -= (dy / dist) * force;
-                    
-                    // Spin effect (tangential force)
-                    player.vx += (dy / dist) * force * 0.5;
-                    player.vy -= (dx / dist) * force * 0.5;
-                }
-                
-                // Event Horizon (Death)
-                if(dist < 30) crashGame("Sucked into a Black Hole");
+            // MOVE METEORS
+            if(h.type === 'meteor') {
+                h.x += h.vx;
+                h.y += h.vy;
             }
 
-            // Meteor Collision
-            if(h.type === 'meteor') {
-                if(dist < h.radius + 15) crashGame("Hit a Meteor");
+            // COLLISION WITH PLAYER
+            if(!player.dead) {
+                let dx = player.x - h.x;
+                let dy = player.y - h.y;
+                let dist = Math.hypot(dx, dy);
+
+                if(h.type === 'blackhole') {
+                    if(dist < 400) { 
+                        let force = 2500 / (dist * dist); 
+                        player.vx -= (dx / dist) * force;
+                        player.vy -= (dy / dist) * force;
+                        player.vx += (dy / dist) * force * 0.5;
+                        player.vy -= (dx / dist) * force * 0.5;
+                    }
+                    if(dist < 30) crashGame("Sucked into a Black Hole");
+                }
+                if(h.type === 'meteor') {
+                    if(dist < h.radius + 15) crashGame("Hit a moving Meteor");
+                }
             }
         });
     }
@@ -390,45 +403,31 @@
         ctx.save();
         ctx.translate(-camera.x, -camera.y);
 
-        // Draw Stars
+        // Stars
         ctx.fillStyle = 'white';
         for(let i=0; i<150; i++) {
             ctx.fillRect(((i*137)%3000 + player.x*0.1), ((i*94)%3000 + player.y*0.1), Math.random()*2, Math.random()*2);
         }
 
-        // Draw Hazards
+        // Hazards
         hazards.forEach(h => {
             if(h.type === 'blackhole') {
-                // Swirling effect
                 ctx.save();
                 ctx.translate(h.x, h.y);
                 ctx.rotate(Date.now() / 200);
                 ctx.beginPath();
                 ctx.arc(0, 0, 30, 0, Math.PI*2);
-                ctx.fillStyle = 'black';
-                ctx.fill();
-                ctx.strokeStyle = 'purple';
-                ctx.lineWidth = 4;
-                ctx.stroke();
-                // accretion disk
-                ctx.beginPath();
-                ctx.ellipse(0, 0, 60, 20, 0, 0, Math.PI*2);
-                ctx.strokeStyle = 'rgba(100,0,255,0.5)';
-                ctx.stroke();
+                ctx.fillStyle = 'black'; ctx.fill();
+                ctx.strokeStyle = 'purple'; ctx.lineWidth = 4; ctx.stroke();
                 ctx.restore();
             } else {
-                // Meteor
                 ctx.beginPath();
                 ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2);
-                ctx.fillStyle = '#666';
-                ctx.fill();
-                // Crates
-                ctx.fillStyle = '#444';
-                ctx.beginPath(); ctx.arc(h.x-10, h.y-5, 8, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#666'; ctx.fill();
             }
         });
 
-        // Draw Particles
+        // Particles
         particles.forEach((p, i) => {
             p.x += p.vx; p.y += p.vy; p.life -= 0.05;
             if(p.life <= 0) particles.splice(i, 1);
@@ -438,7 +437,7 @@
             ctx.globalAlpha = 1;
         });
 
-        // Draw Track lines
+        // Track
         if(track.length > 0) {
             ctx.strokeStyle = 'rgba(255,255,255,0.1)';
             ctx.lineWidth = 50;
@@ -448,38 +447,28 @@
             ctx.stroke();
         }
 
-        // Draw Planets
         track.forEach((p, index) => {
             ctx.beginPath();
             ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-            ctx.fillStyle = p.color;
-            ctx.fill();
-            if(index === player.currentPlanetIndex) {
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.stroke();
-            }
-            if(p.isFinish) {
-                ctx.fillStyle = 'white'; ctx.fillText("FINISH", p.x-25, p.y+5);
-            }
+            ctx.fillStyle = p.color; ctx.fill();
+            if(index === player.currentPlanetIndex) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.stroke(); }
+            if(p.isFinish) { ctx.fillStyle = 'white'; ctx.fillText("FINISH", p.x-25, p.y+5); }
         });
 
-        // Draw Bots
+        // Bots
         bots.forEach(b => {
-            drawRocket(b.x, b.y, b.angle, b.color, false);
-            ctx.fillStyle = "white"; 
-            ctx.font = "12px Arial";
-            ctx.fillText(b.name, b.x-20, b.y-30);
+            drawRocket(b.x, b.y, b.angle, b.color, true); // True = always thrusting
+            ctx.fillStyle = "white"; ctx.font = "12px Arial"; ctx.fillText(b.name, b.x-20, b.y-30);
         });
 
-        // Draw Opponents (MP)
+        // MP Opponents
         for (let id in opponents) {
             if(id !== socket.id) drawRocket(opponents[id].x, opponents[id].y, opponents[id].angle, '#ff4444', false);
         }
 
-        // Draw Player
+        // Player
         if(!player.dead) {
             drawRocket(player.x, player.y, player.angle, '#00d2ff', keys.up);
-            // Drifting smoke
-            if(keys.shift) createParticle(player.x, player.y, player.angle + Math.PI, '#fff');
         }
 
         // Guide Arrow
@@ -499,12 +488,10 @@
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(angle);
-        
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.moveTo(20, 0); ctx.lineTo(-15, 12); ctx.lineTo(-10, 0); ctx.lineTo(-15, -12);
         ctx.fill();
-        
         if(thrusting) {
             ctx.fillStyle = '#ffaa00';
             ctx.beginPath();
@@ -520,7 +507,6 @@
         hazards = [];
         let startX = 400, startY = 300;
         
-        // Generate Planets
         for (let i = 0; i < 20; i++) {
             track.push({
                 x: startX, y: startY,
@@ -529,25 +515,37 @@
                 isFinish: i===19
             });
             
-            // Randomly spawn hazards between planets (not on start)
             if(i > 0 && i < 19) {
-                // 30% chance of black hole, 40% chance of meteor cluster
                 if(Math.random() < 0.3) {
                     hazards.push({ type: 'blackhole', x: startX + (Math.random()-0.5)*400, y: startY - 250 });
                 } else if (Math.random() < 0.6) {
-                    hazards.push({ type: 'meteor', radius: 20+Math.random()*20, x: startX + (Math.random()-0.5)*300, y: startY - 300 });
+                    // METEORS NOW HAVE VELOCITY
+                    hazards.push({ 
+                        type: 'meteor', 
+                        radius: 20+Math.random()*20, 
+                        x: startX + (Math.random()-0.5)*300, 
+                        y: startY - 300,
+                        vx: (Math.random() - 0.5) * 3, // Moving
+                        vy: (Math.random() - 0.5) * 3
+                    });
                 }
             }
-
             startX += (Math.random() - 0.5) * 1500;
             startY -= (600 + Math.random() * 300);
         }
 
-        // Initialize Bots
+        // --- BOTS CONFIG (FAIR SPEED) ---
+        // They all use 'getPlayerMaxSpeed()' in the loop.
+        // Difference is turnSkill and wobble (error rate)
         bots = [
-            { name: "Rusty (Noob)", type: 'noob', color: '#66ff66', x: 450, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, maxSpeed: 5, turnSpeed: 0.02, accel: 0.1 },
-            { name: "Apex (Pro)", type: 'expert', color: '#ff3333', x: 350, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, maxSpeed: 11, turnSpeed: 0.08, accel: 0.25 },
-            { name: "Shadow (AI)", type: 'adaptive', color: '#aa33ff', x: 400, y: 350, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, maxSpeed: 8, turnSpeed: 0.05, accel: 0.2 }
+            // Rusty: High wobble (drunk driving), low turn skill
+            { name: "Rusty (Noob)", type: 'noob', color: '#66ff66', x: 450, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, turnSkill: 0.03, wobble: 0.5 },
+            
+            // Apex: No wobble, perfect turn skill
+            { name: "Apex (Expert)", type: 'expert', color: '#ff3333', x: 350, y: 300, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, turnSkill: 0.08, wobble: 0.0 },
+            
+            // Shadow: Changes wobble based on if it's winning or losing
+            { name: "Shadow (Adapt)", type: 'adaptive', adaptiveState: 'expert', color: '#aa33ff', x: 400, y: 350, vx:0, vy:0, angle: -1.5, currentPlanetIndex: 1, finished: false, turnSkill: 0.06, wobble: 0.0 }
         ];
 
         startGame(track);
@@ -573,9 +571,7 @@
     }
 
     function createExplosion(x, y) {
-        for(let i=0; i<30; i++) {
-            createParticle(x, y, Math.random()*Math.PI*2, '#ff4400');
-        }
+        for(let i=0; i<30; i++) createParticle(x, y, Math.random()*Math.PI*2, '#ff4400');
     }
 
     function calculateRank() {
@@ -606,34 +602,14 @@
         showMenu('gameOverMenu');
     }
 
-    // --- UTILS & SOCKETS ---
-    function showMenu(id) {
-        document.querySelectorAll('.menu-box').forEach(el => el.classList.remove('visible'));
-        if(id) document.getElementById(id).classList.add('visible');
-    }
-    
-    function buyUpgrade(type) {
-        if(stats.points >= 100) {
-            stats.points -= 100;
-            if(type === 'speed') stats.speedLvl++;
-            if(type === 'handling') stats.handleLvl++;
-            saveStats();
-        } else alert("Need 100 Points");
-    }
+    function showMenu(id) { document.querySelectorAll('.menu-box').forEach(el => el.classList.remove('visible')); if(id) document.getElementById(id).classList.add('visible'); }
+    function buyUpgrade(type) { if(stats.points >= 100) { stats.points -= 100; if(type === 'speed') stats.speedLvl++; if(type === 'handling') stats.handleLvl++; saveStats(); } else alert("Need 100 Points"); }
+    function saveStats() { localStorage.setItem('rr_points', stats.points); localStorage.setItem('rr_speed', stats.speedLvl); localStorage.setItem('rr_handle', stats.handleLvl); updateUI(); }
 
-    function saveStats() {
-        localStorage.setItem('rr_points', stats.points);
-        localStorage.setItem('rr_speed', stats.speedLvl);
-        localStorage.setItem('rr_handle', stats.handleLvl);
-        updateUI();
-    }
-
-    // Socket Wrappers
     function createRoom() { socket.emit('createRoom'); }
     function joinRoom() { socket.emit('joinRoom', document.getElementById('roomCodeInput').value.toUpperCase()); }
     function requestStart() { if(roomCode && isHost) socket.emit('startGame', roomCode); }
 
-    // Socket Listeners
     socket.on('roomCreated', (code) => { roomCode = code; isHost = true; document.getElementById('lobbyCode').innerText = code; document.getElementById('startBtn').style.display='inline-block'; showMenu('lobbyMenu'); });
     socket.on('roomJoined', (data) => { roomCode = data.code; isHost = false; track = data.track; document.getElementById('lobbyCode').innerText = data.code; showMenu('lobbyMenu'); });
     socket.on('updateLobby', (players) => { document.getElementById('playerList').innerHTML = Object.keys(players).map(id => `<div>Pilot ${id.substr(0,4)}</div>`).join(''); });
