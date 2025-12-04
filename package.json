@@ -1,0 +1,10 @@
+{
+  "name": "rocket-racer",
+  "version": "1.0.0",
+  "description": "Multiplayer Rocket Racing",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  }
+}
