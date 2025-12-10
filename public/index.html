@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Hazard & Spawn</title>
+    <title>Stellar Drift: Gravity Assist</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; }
         canvas { display: block; }
@@ -20,17 +20,15 @@
         button.gold { background: linear-gradient(45deg, #ffd700, #ffaa00); color: black; }
         input { padding: 12px; font-size: 16px; background: #050510; color: #fff; border: 1px solid #444; text-align: center; }
         
-        /* HUD Top Left */
         .hud-stats { position: absolute; top: 20px; left: 20px; font-size: 18px; font-weight: bold; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none; }
-        .coord-box { color: #00ff00; font-family: 'Courier New', Courier, monospace; margin-top: 10px; }
+        .coord-box { color: #00ff00; font-family: monospace; margin-top: 10px; }
+        .charge-box { margin-top: 10px; color: #00ffff; display: none; }
 
         #chatContainer { position: absolute; bottom: 20px; left: 20px; width: 300px; pointer-events: auto; z-index: 100; display: none; }
         #chatMessages { height: 150px; overflow-y: auto; background: rgba(0,0,0,0.6); border: 1px solid #444; padding: 10px; list-style: none; margin: 0; color: #ddd; font-size: 13px; }
         #chatInput { width: 100%; box-sizing: border-box; margin-top: 5px; text-align: left; background: rgba(0,0,0,0.8); }
 
         #minimapContainer { position: absolute; bottom: 20px; right: 20px; width: 200px; height: 200px; background: rgba(0, 20, 40, 0.9); border: 2px solid #00d2ff; border-radius: 50%; pointer-events: none; overflow: hidden; z-index: 100; display: none; }
-        
-        /* Crash Title */
         .crash-title { color: #ff3333; font-size: 40px; margin-bottom: 10px; text-transform: uppercase; font-weight: 900; letter-spacing: 5px; }
     </style>
 </head>
@@ -41,9 +39,8 @@
 <div id="hud-layer">
     <div class="hud-stats">
         <div>POINTS: <span id="scoreDisplay" style="color:#00d2ff">0</span></div>
-        <div id="planetCountDiv">PLANETS: <span id="planetCounter" style="color:#ffee00">0/0</span></div>
         <div class="coord-box">POS: <span id="coordDisplay">0, 0</span></div>
-        <div id="roomDisplay" style="font-size:14px; color:#888; margin-top:5px;"></div>
+        <div id="chargeUI" class="charge-box">SLINGSHOT: <span id="chargeVal">0%</span></div>
     </div>
 
     <div id="chatContainer">
@@ -57,7 +54,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Open World Survival</p>
+        <p>Gravity Slingshots Enabled</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Race Multiplayer</button>
         <br><button class="gold" onclick="createOpenWorld()">OPEN WORLD ONLINE</button><br>
@@ -74,7 +71,6 @@
 
     <div id="lobbyMenu" class="menu-box">
         <h2>Room: <span id="lobbyCode" style="color:#ffee00;"></span></h2>
-        <p>Mode: <span id="lobbyMode">Race</span></p>
         <div id="playerList" style="margin:20px 0; border-top:1px solid #333; padding-top:10px;"></div>
         <button id="startBtn" style="display:none;" onclick="requestStart()">START RACE</button>
     </div>
@@ -104,9 +100,8 @@
     const socket = io();
 
     let width, height, gameState = 'menu', roomCode = null, isHost = false, gameMode = 'race';
-    let opponents = {}, track = [], hazards = [], spawnPoints = [], particles = [];
+    let opponents = {}, track = [], hazards = [], spawnPoints = [], walls = [], particles = [];
     let camera = { x: 0, y: 0 }, screenShake = 0;
-    
     let loadedObjectIds = new Set();
 
     let stats = {
@@ -115,7 +110,11 @@
         handleLvl: parseInt(localStorage.getItem('rr_handle')) || 1
     };
 
-    let player = { x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false, dead: false };
+    // Slingshot Variables
+    let slingshotCharge = 1.0; 
+    let orbitingPlanet = null;
+
+    let player = { x: 0, y: 0, vx: 0, vy: 0, angle: 0, finished: false, dead: false };
     let keys = { up: false, down: false, left: false, right: false, shift: false, turbo: false };
 
     function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
@@ -157,10 +156,12 @@
         document.getElementById('lvlHandle').innerText = stats.handleLvl;
         document.getElementById('coordDisplay').innerText = `${Math.round(player.x)}, ${Math.round(player.y)}`;
         
-        if(gameMode === 'openworld') document.getElementById('planetCountDiv').style.display = 'none';
-        else {
-            document.getElementById('planetCountDiv').style.display = 'block';
-            if(track.length > 0) document.getElementById('planetCounter').innerText = player.currentPlanetIndex + " / " + track.length;
+        // Update Charge UI
+        if(slingshotCharge > 1.1) {
+            document.getElementById('chargeUI').style.display = 'block';
+            document.getElementById('chargeVal').innerText = Math.round(slingshotCharge * 100) + "%";
+        } else {
+            document.getElementById('chargeUI').style.display = 'none';
         }
     }
 
@@ -178,7 +179,6 @@
         document.getElementById('minimapContainer').style.display = display;
     }
 
-    // --- GAME LOOP ---
     function gameLoop() {
         ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, width, height);
 
@@ -187,13 +187,11 @@
                 updatePlayerPhysics();
                 if(roomCode) socket.emit('playerMove', { room: roomCode, x: player.x, y: player.y, angle: player.angle });
             }
-            // Update hazards even if dead so meteors keep moving
             updateHazards();
             updateCamera();
             drawMinimap();
             updateUI();
         }
-
         if(gameState !== 'menu' && gameState !== 'lobby') drawGame();
         requestAnimationFrame(gameLoop);
     }
@@ -213,6 +211,8 @@
 
     function updatePlayerPhysics() {
         let maxSpeed = getPlayerMaxSpeed(); let turnSpeed = getPlayerTurnSpeed(); let acceleration = getPlayerAccel(); let friction = 0.96; 
+        
+        // 1. Basic Movement
         if (keys.turbo) { maxSpeed *= 2.5; acceleration *= 3.0; turnSpeed *= 0.4; screenShake = Math.max(screenShake, 3.0); createParticle(player.x, player.y, player.angle + Math.PI + (Math.random()-0.5), '#00ffff'); }
         if (keys.shift) { friction = 0.995; screenShake = Math.max(screenShake, 1.5); }
         if (keys.down) friction = 0.90; 
@@ -226,16 +226,94 @@
             if(!keys.turbo) screenShake = Math.max(screenShake, 0.5);
         }
 
+        // 2. GRAVITY & SLINGSHOT LOGIC
+        let inAnyGravity = false;
+        track.forEach(p => {
+            let dx = p.x - player.x;
+            let dy = p.y - player.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            const gravityRadius = p.radius + 300; // Gravity Well Size
+
+            // Death Collision
+            if(dist < p.radius) crashGame("Crashed into Planet");
+
+            // Gravity Logic
+            if(dist < gravityRadius) {
+                inAnyGravity = true;
+                orbitingPlanet = p;
+                
+                // Pull towards planet
+                let gravityStrength = 1500 / (dist * dist);
+                player.vx += dx * gravityStrength * 0.01;
+                player.vy += dy * gravityStrength * 0.01;
+
+                // Loop Charging: The faster you orbit, the more charge
+                let speed = Math.hypot(player.vx, player.vy);
+                if(speed > 5) {
+                    slingshotCharge += 0.01; 
+                    if(slingshotCharge > 3.0) slingshotCharge = 3.0; // Max Charge
+                }
+            }
+        });
+
+        // 3. FLING (Exit Gravity)
+        if(!inAnyGravity && orbitingPlanet !== null) {
+            if(slingshotCharge > 1.2) {
+                // Apply Boost
+                player.vx *= slingshotCharge;
+                player.vy *= slingshotCharge;
+                screenShake = 30; // Big Boom
+                for(let i=0; i<20; i++) createParticle(player.x, player.y, Math.random()*Math.PI*2, '#00ffff');
+                addChatMessage("System", "SLINGSHOT BOOST!", true);
+            }
+            orbitingPlanet = null;
+            slingshotCharge = 1.0; // Reset
+        }
+
+        // 4. WALL COLLISION
+        walls.forEach(w => {
+            // Simple Point vs Rotated Rectangle collision check logic
+            // Converting player pos to wall-local space
+            let dx = player.x - w.x;
+            let dy = player.y - w.y;
+            let localX = dx * Math.cos(-w.angle) - dy * Math.sin(-w.angle);
+            let localY = dx * Math.sin(-w.angle) + dy * Math.cos(-w.angle);
+
+            if(Math.abs(localX) < w.w/2 && Math.abs(localY) < w.h/2) {
+                // Hit wall -> Bounce
+                player.vx *= -1.2; // Bouncy
+                player.vy *= -1.2;
+                player.x += player.vx * 3; // Push out
+                player.y += player.vy * 3;
+                screenShake = 20;
+            }
+        });
+
         player.vx *= friction; player.vy *= friction;
         let speed = Math.hypot(player.vx, player.vy);
-        if (speed > maxSpeed) { let ratio = maxSpeed / speed; player.vx *= ratio; player.vy *= ratio; }
+        
+        // If boosted, allow exceeding max speed briefly
+        if(slingshotCharge <= 1.0 && speed > maxSpeed) {
+            let ratio = maxSpeed / speed;
+            player.vx *= ratio; player.vy *= ratio;
+        }
+
         player.x += player.vx; player.y += player.vy;
         
-        if(gameMode === 'race') checkCheckpoints(player);
+        // Finish Line Check
+        if(track.length > 0) {
+            let finishPlanet = track[track.length - 1]; // Last planet is finish
+            if(finishPlanet.isFinish) {
+                let d = Math.hypot(player.x - finishPlanet.x, player.y - finishPlanet.y);
+                if(d < finishPlanet.radius + 100) {
+                    alert("COURSE COMPLETED!");
+                    gameState = 'finished';
+                }
+            }
+        }
     }
 
     function updateHazards() {
-        // Move meteors
         hazards.forEach(h => {
             if(h.type === 'meteor') { h.x += h.vx; h.y += h.vy; }
             if(!player.dead) {
@@ -260,119 +338,65 @@
         setTimeout(() => showMenu('crashMenu'), 1000);
     }
 
-    // --- RESPAWN LOGIC ---
     function respawnPlayer() {
         let spawnX = 0, spawnY = 0;
-        
-        // Pick a random Spawn Beacon if available
         if(spawnPoints.length > 0) {
             const pick = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
-            spawnX = pick.x;
-            spawnY = pick.y;
+            spawnX = pick.x; spawnY = pick.y;
         }
-
-        player.x = spawnX;
-        player.y = spawnY;
-        player.vx = 0; player.vy = 0;
-        player.dead = false;
-        player.finished = false;
-        
-        // Slight clear area
-        screenShake = 0;
-        showMenu(null);
-    }
-
-    function checkCheckpoints(entity) {
-        if (track.length > 0) {
-            let target = track[entity.currentPlanetIndex];
-            let dist = Math.hypot(entity.x - target.x, entity.y - target.y);
-            if (dist < target.radius + 30) {
-                if (entity.currentPlanetIndex < track.length - 1) { entity.currentPlanetIndex++; updateUI(); } 
-                else { entity.finished = true; if(entity === player) { alert("Finished!"); gameState = 'finished'; } }
-            }
-        }
+        player.x = spawnX; player.y = spawnY; player.vx = 0; player.vy = 0;
+        player.dead = false; screenShake = 0; showMenu(null);
     }
 
     function createParticle(x, y, angle, color) {
         particles.push({x: x - Math.cos(angle)*20, y: y - Math.sin(angle)*20, vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2, life: 1.0, color: color});
     }
 
-    // --- RENDER ---
     function drawMinimap() {
         mmCtx.fillStyle = 'rgba(0, 20, 40, 0.9)'; mmCtx.fillRect(0, 0, 200, 200);
         let cx = 100, cy = 100, scale = 0.01;
-        
-        // Spawn Points (Green)
-        spawnPoints.forEach(sp => {
-            let mx = (sp.x - player.x) * scale + cx; let my = (sp.y - player.y) * scale + cy;
-            if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = '#00ff00'; mmCtx.beginPath(); mmCtx.arc(mx, my, 3, 0, Math.PI*2); mmCtx.fill(); }
-        });
-
-        track.forEach(p => {
-            let mx = (p.x - player.x) * scale + cx; let my = (p.y - player.y) * scale + cy;
-            if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = p.color; mmCtx.beginPath(); mmCtx.arc(mx, my, 4, 0, Math.PI*2); mmCtx.fill(); }
-        });
-
-        hazards.forEach(h => {
-            let mx = (h.x - player.x) * scale + cx; let my = (h.y - player.y) * scale + cy;
-            if(Math.hypot(mx-cx, my-cy) < 100) { 
-                mmCtx.fillStyle = h.type==='blackhole' ? 'purple' : '#888'; 
-                mmCtx.beginPath(); mmCtx.arc(mx, my, 2, 0, Math.PI*2); mmCtx.fill(); 
-            }
-        });
-        
-        mmCtx.save(); mmCtx.translate(cx, cy); mmCtx.rotate(player.angle);
-        mmCtx.fillStyle = '#00ffff'; mmCtx.beginPath(); mmCtx.moveTo(5, 0); mmCtx.lineTo(-4, 3); mmCtx.lineTo(-4, -3); mmCtx.fill(); mmCtx.restore();
+        spawnPoints.forEach(sp => { let mx = (sp.x - player.x) * scale + cx; let my = (sp.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = '#00ff00'; mmCtx.beginPath(); mmCtx.arc(mx, my, 3, 0, Math.PI*2); mmCtx.fill(); }});
+        track.forEach(p => { let mx = (p.x - player.x) * scale + cx; let my = (p.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = p.color; mmCtx.beginPath(); mmCtx.arc(mx, my, 4, 0, Math.PI*2); mmCtx.fill(); }});
+        walls.forEach(w => { let mx = (w.x - player.x) * scale + cx; let my = (w.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = '#fff'; mmCtx.fillRect(mx-2, my-2, 4, 4); }});
+        mmCtx.save(); mmCtx.translate(cx, cy); mmCtx.rotate(player.angle); mmCtx.fillStyle = '#00ffff'; mmCtx.beginPath(); mmCtx.moveTo(5, 0); mmCtx.lineTo(-4, 3); mmCtx.lineTo(-4, -3); mmCtx.fill(); mmCtx.restore();
     }
 
     function drawGame() {
         ctx.save(); ctx.translate(-camera.x, -camera.y);
-        ctx.fillStyle = 'white';
-        for(let i=0; i<100; i++) ctx.fillRect(((i*137)%3000 + player.x*0.1), ((i*94)%3000 + player.y*0.1), 2, 2);
+        ctx.fillStyle = 'white'; for(let i=0; i<100; i++) ctx.fillRect(((i*137)%3000 + player.x*0.1), ((i*94)%3000 + player.y*0.1), 2, 2);
 
-        // Draw Spawn Points
-        spawnPoints.forEach(sp => {
-            ctx.beginPath();
-            ctx.arc(sp.x, sp.y, sp.radius, 0, Math.PI*2);
-            ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2; ctx.stroke();
-            ctx.fillStyle = 'rgba(0, 255, 0, 0.2)'; ctx.fill();
-            ctx.fillStyle = '#00ff00'; ctx.font = '12px Arial'; ctx.fillText('SPAWN', sp.x-20, sp.y-40);
+        spawnPoints.forEach(sp => { ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.radius, 0, Math.PI*2); ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = '#00ff00'; ctx.font = '12px Arial'; ctx.fillText('SPAWN', sp.x-20, sp.y-40); });
+
+        // Draw Gravity Rings & Planets
+        track.forEach(p => {
+            // Gravity Well Ring
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 300, 0, Math.PI*2); ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 1; ctx.stroke();
+            // Planet Body
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill();
+            if(p.isFinish) { ctx.fillStyle = 'white'; ctx.font = "30px Arial"; ctx.fillText("FINISH", p.x-50, p.y); }
+        });
+
+        // Draw Walls
+        walls.forEach(w => {
+            ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(w.angle);
+            ctx.fillStyle = '#555'; ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h);
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h);
+            ctx.restore();
         });
 
         hazards.forEach(h => {
-            if(h.type === 'blackhole') {
-                ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(Date.now() / 200);
-                ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2); ctx.fillStyle = 'black'; ctx.fill();
-                ctx.strokeStyle = 'purple'; ctx.lineWidth = 4; ctx.stroke(); ctx.restore();
-            } else if (h.type === 'wormhole') {
-                ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(-Date.now() / 100);
-                ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI*2); ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
-            } else {
-                ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fillStyle = '#666'; ctx.fill();
-            }
+            if(h.type === 'blackhole') { ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(Date.now() / 200); ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2); ctx.fillStyle = 'black'; ctx.fill(); ctx.strokeStyle = 'purple'; ctx.lineWidth = 4; ctx.stroke(); ctx.restore(); }
+            else if (h.type === 'wormhole') { ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(-Date.now() / 100); ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI*2); ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore(); }
+            else { ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fillStyle = '#666'; ctx.fill(); }
         });
 
-        particles.forEach((p, i) => {
-            p.x += p.vx; p.y += p.vy; p.life -= 0.05;
-            if(p.life <= 0) particles.splice(i, 1);
-            ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, 4, 4); ctx.globalAlpha = 1;
-        });
-
-        if(gameMode === 'race' && track.length > 0) {
-            ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 50;
-            ctx.beginPath(); ctx.moveTo(track[0].x, track[0].y);
-            for(let i=1; i<track.length; i++) ctx.lineTo(track[i].x, track[i].y);
-            ctx.stroke();
-        }
-
-        track.forEach((p, index) => {
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill();
-            if(gameMode === 'race' && index === player.currentPlanetIndex) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.stroke(); }
-        });
+        particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.05; if(p.life <= 0) particles.splice(i, 1); ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, 4, 4); ctx.globalAlpha = 1; });
 
         for (let id in opponents) { if(id !== socket.id) drawRocket(opponents[id].x, opponents[id].y, opponents[id].angle, '#ff4444', false); }
         
         if(!player.dead) {
+            // Glow if charged
+            if(slingshotCharge > 1.2) { ctx.beginPath(); ctx.arc(player.x, player.y, 30, 0, Math.PI*2); ctx.fillStyle = `rgba(0, 255, 255, ${slingshotCharge * 0.2})`; ctx.fill(); }
             let color = keys.turbo ? '#00ffff' : '#00d2ff';
             drawRocket(player.x, player.y, player.angle, color, keys.up || keys.turbo);
         }
@@ -383,11 +407,7 @@
     function drawRocket(x, y, angle, color, thrusting) {
         ctx.save(); ctx.translate(x, y); ctx.rotate(angle); ctx.fillStyle = color;
         ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-15, 12); ctx.lineTo(-10, 0); ctx.lineTo(-15, -12); ctx.fill();
-        if(thrusting) {
-            ctx.fillStyle = keys.turbo ? '#00ffff' : '#ffaa00';
-            ctx.beginPath(); let flameLen = keys.turbo ? 50 : 30;
-            ctx.moveTo(-15, 6); ctx.lineTo(-flameLen - Math.random()*15, 0); ctx.lineTo(-15, -6); ctx.fill();
-        }
+        if(thrusting) { ctx.fillStyle = keys.turbo ? '#00ffff' : '#ffaa00'; ctx.beginPath(); let flameLen = keys.turbo ? 50 : 30; ctx.moveTo(-15, 6); ctx.lineTo(-flameLen - Math.random()*15, 0); ctx.lineTo(-15, -6); ctx.fill(); }
         ctx.restore();
     }
 
@@ -399,56 +419,23 @@
     function createOpenWorld() { createRoom('openworld'); }
 
     // --- EVENTS ---
-    socket.on('roomCreated', (data) => { 
-        roomCode = data.code; isHost = true; gameMode = data.type;
-        document.getElementById('lobbyCode').innerText = data.code; document.getElementById('lobbyMode').innerText = gameMode;
-        if(gameMode === 'race') document.getElementById('startBtn').style.display='inline-block';
-        showMenu(gameMode === 'openworld' ? null : 'lobbyMenu');
-        setHudVisible(true); document.getElementById('roomDisplay').innerText = "ROOM: " + roomCode;
-        if(gameMode === 'openworld') { loadedObjectIds.clear(); gameState = 'openworld'; addChatMessage("System", "Generating Open World...", false); respawnPlayer(); }
-    });
-
-    socket.on('roomJoined', (data) => { 
-        roomCode = data.code; isHost = false; gameMode = data.type;
-        document.getElementById('lobbyCode').innerText = data.code; document.getElementById('lobbyMode').innerText = gameMode;
-        showMenu(gameMode === 'openworld' ? null : 'lobbyMenu');
-        setHudVisible(true); document.getElementById('roomDisplay').innerText = "ROOM: " + roomCode;
-        if(data.trackData) { track = data.trackData.planets; hazards = data.trackData.hazards || []; spawnPoints = data.trackData.spawnPoints || []; }
-        else { loadedObjectIds.clear(); track = []; hazards = []; spawnPoints = []; }
-        if(gameMode === 'openworld') { gameState = 'openworld'; respawnPlayer(); }
-        addChatMessage("System", "Joined Room: " + roomCode, false);
-    });
-
+    socket.on('roomCreated', (data) => { roomCode = data.code; isHost = true; gameMode = data.type; document.getElementById('lobbyCode').innerText = data.code; showMenu(gameMode === 'openworld' ? null : 'lobbyMenu'); setHudVisible(true); if(gameMode === 'openworld') { loadedObjectIds.clear(); gameState = 'openworld'; addChatMessage("System", "Generating Open World...", false); respawnPlayer(); } });
+    socket.on('roomJoined', (data) => { roomCode = data.code; isHost = false; gameMode = data.type; document.getElementById('lobbyCode').innerText = data.code; showMenu(gameMode === 'openworld' ? null : 'lobbyMenu'); setHudVisible(true); if(data.trackData) { track = data.trackData.planets; hazards = data.trackData.hazards || []; spawnPoints = data.trackData.spawnPoints || []; walls = data.trackData.walls || []; } else { loadedObjectIds.clear(); track = []; hazards = []; spawnPoints = []; walls = []; } if(gameMode === 'openworld') { gameState = 'openworld'; respawnPlayer(); } addChatMessage("System", "Joined Room: " + roomCode, false); });
     socket.on('updateLobby', (players) => { document.getElementById('playerList').innerHTML = Object.keys(players).map(id => `<div>Pilot ${id.substr(0,4)}</div>`).join(''); });
-    
-    socket.on('gameStart', (serverData) => { 
-        if(serverData) { track = serverData.planets; hazards = serverData.hazards || []; spawnPoints = serverData.spawnPoints || []; }
-        respawnPlayer();
-        gameState = (gameMode === 'openworld' ? 'openworld' : 'playing');
-        showMenu(null); setHudVisible(true);
-    });
-    
+    socket.on('gameStart', (serverData) => { if(serverData) { track = serverData.planets; hazards = serverData.hazards || []; spawnPoints = serverData.spawnPoints || []; walls = serverData.walls || []; } respawnPlayer(); gameState = (gameMode === 'openworld' ? 'openworld' : 'playing'); showMenu(null); setHudVisible(true); });
     socket.on('playerMoved', (data) => { opponents[data.id] = data; });
     socket.on('chatMessage', (data) => { addChatMessage(data.id.substr(0,4), data.msg, data.id === socket.id); });
-    socket.on('errorMsg', (msg) => alert(msg));
-
-    // NEW CHUNK DATA
-    socket.on('newChunk', (chunkData) => {
-        chunkData.planets.forEach(p => { if(!loadedObjectIds.has(p.id)) { track.push(p); loadedObjectIds.add(p.id); } });
-        chunkData.hazards.forEach(h => { if(!loadedObjectIds.has(h.id)) { hazards.push(h); loadedObjectIds.add(h.id); } });
-        chunkData.spawnPoints.forEach(sp => { if(!loadedObjectIds.has(sp.id)) { spawnPoints.push(sp); loadedObjectIds.add(sp.id); } });
-    });
+    socket.on('newChunk', (chunkData) => { chunkData.planets.forEach(p => { if(!loadedObjectIds.has(p.id)) { track.push(p); loadedObjectIds.add(p.id); } }); chunkData.hazards.forEach(h => { if(!loadedObjectIds.has(h.id)) { hazards.push(h); loadedObjectIds.add(h.id); } }); chunkData.spawnPoints.forEach(sp => { if(!loadedObjectIds.has(sp.id)) { spawnPoints.push(sp); loadedObjectIds.add(sp.id); } }); chunkData.walls.forEach(w => { if(!loadedObjectIds.has(w.id)) { walls.push(w); loadedObjectIds.add(w.id); } }); });
 
     function setupSinglePlayer() {
-        roomCode = null; gameMode = 'race'; track = []; hazards = []; spawnPoints = []; loadedObjectIds.clear();
-        let startX = 400, startY = 300;
-        spawnPoints.push({x: 400, y: 300, radius: 40});
+        roomCode = null; gameMode = 'race'; track = []; hazards = []; spawnPoints = []; walls = []; loadedObjectIds.clear();
+        let startX = 400, startY = 300; spawnPoints.push({x: 400, y: 300, radius: 40});
         for (let i = 0; i < 20; i++) {
-            track.push({ id:`sp_p_${i}`, x: startX, y: startY, radius: 40 + Math.random()*30, color: `hsl(${Math.random()*360}, 60%, 40%)`, isFinish: i===19 });
+            track.push({ id:`sp_p_${i}`, x: startX, y: startY, radius: 60 + Math.random()*80, color: `hsl(${Math.random()*360}, 60%, 40%)`, isFinish: i===19 });
+            if(i>0) walls.push({ x: startX + (Math.random()-0.5)*600, y: startY + (Math.random()-0.5)*600, w: 200, h: 40, angle: Math.random() });
             startX += (Math.random() - 0.5) * 1500; startY -= (600 + Math.random() * 300);
         }
-        respawnPlayer();
-        gameState = 'playing'; showMenu(null); setHudVisible(true); addChatMessage("System", "Single Player Mode", false);
+        respawnPlayer(); gameState = 'playing'; showMenu(null); setHudVisible(true); addChatMessage("System", "Single Player Mode", false);
     }
 </script>
 </body>
