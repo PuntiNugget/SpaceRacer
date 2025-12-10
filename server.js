@@ -7,18 +7,21 @@ const path = require('path');
 app.use(express.static(path.join(__dirname, 'public')));
 
 const rooms = {};
-const CHUNK_SIZE = 2000; // Size of one "Chunk" of space
+const CHUNK_SIZE = 2000; 
 
-// Helper: Generate Linear Race Track
+// Helper: Linear Race Track
 function generateRaceTrack() {
-    const items = { planets: [], hazards: [] };
+    const items = { planets: [], hazards: [], spawnPoints: [] }; // spawnPoints added for consistency
     let startX = 400;
     let startY = 300;
+    
+    // Race Spawn
+    items.spawnPoints.push({ x: 400, y: 300 });
+
     for (let i = 0; i < 20; i++) {
         items.planets.push({
             id: `p_${i}`,
-            x: startX,
-            y: startY,
+            x: startX, y: startY,
             radius: 40 + Math.random() * 40,
             color: `hsl(${Math.random() * 360}, 70%, 50%)`,
             isFinish: i === 19
@@ -29,14 +32,25 @@ function generateRaceTrack() {
     return items;
 }
 
-// Helper: Generate a Specific Chunk for Open World
+// Helper: Chunk Generation
 function generateChunkData(cx, cy) {
-    const items = { planets: [], hazards: [] };
+    const items = { planets: [], hazards: [], spawnPoints: [] };
     const offsetX = cx * CHUNK_SIZE;
     const offsetY = cy * CHUNK_SIZE;
 
-    // 1. Generate Planets (1-3 per chunk)
-    const planetCount = Math.floor(Math.random() * 3) + 1;
+    // 1. Generate Spawn Point (Safe Zone)
+    // Always put one at 0,0. Otherwise 40% chance per chunk.
+    if ((cx === 0 && cy === 0) || Math.random() < 0.4) {
+        items.spawnPoints.push({
+            id: `sp_${cx}_${cy}`,
+            x: offsetX + (Math.random() * CHUNK_SIZE),
+            y: offsetY + (Math.random() * CHUNK_SIZE),
+            radius: 40 // Visual radius of beacon
+        });
+    }
+
+    // 2. Generate Planets
+    const planetCount = Math.floor(Math.random() * 3);
     for(let i=0; i<planetCount; i++) {
         items.planets.push({
             id: `chunk_${cx}_${cy}_p_${i}`,
@@ -48,8 +62,8 @@ function generateChunkData(cx, cy) {
         });
     }
 
-    // 2. Generate Hazards (Meteors/Black Holes/Wormholes)
-    const hazardCount = Math.floor(Math.random() * 4); // 0 to 3 hazards
+    // 3. Generate Hazards
+    const hazardCount = Math.floor(Math.random() * 4); 
     for(let i=0; i<hazardCount; i++) {
         const typeRoll = Math.random();
         let type = 'meteor';
@@ -62,8 +76,8 @@ function generateChunkData(cx, cy) {
             x: offsetX + Math.random() * CHUNK_SIZE,
             y: offsetY + Math.random() * CHUNK_SIZE,
             radius: type === 'meteor' ? 20 + Math.random() * 30 : 0,
-            vx: type === 'meteor' ? (Math.random()-0.5) * 4 : 0,
-            vy: type === 'meteor' ? (Math.random()-0.5) * 4 : 0
+            vx: type === 'meteor' ? (Math.random()-0.5) * 5 : 0, // Faster meteors
+            vy: type === 'meteor' ? (Math.random()-0.5) * 5 : 0
         });
     }
 
@@ -85,7 +99,6 @@ io.on('connection', (socket) => {
         
         rooms[roomCode] = {
             players: {},
-            // Open World uses 'chunks', Race uses 'track'
             chunks: {}, 
             trackData: isOpenWorld ? null : generateRaceTrack(),
             type: type || 'race'
@@ -108,13 +121,9 @@ io.on('connection', (socket) => {
             socket.emit('roomJoined', { 
                 code: roomCode, 
                 type: rooms[roomCode].type,
-                // If race, send track immediately. If Open World, send nothing yet.
                 trackData: rooms[roomCode].trackData 
             });
-            
             io.to(roomCode).emit('updateLobby', rooms[roomCode].players);
-            
-            // If race, auto-start for joiner (if running)
             if(rooms[roomCode].type === 'race') socket.emit('gameStart', rooms[roomCode].trackData);
         } else {
             socket.emit('errorMsg', 'Room not found');
@@ -138,23 +147,18 @@ io.on('connection', (socket) => {
             p.angle = data.angle;
             socket.to(data.room).emit('playerMoved', { id: socket.id, x: p.x, y: p.y, angle: p.angle });
 
-            // --- CHUNK GENERATION LOGIC (Open World Only) ---
+            // Chunk Logic
             if(room.type === 'openworld') {
                 const chunkX = Math.floor(p.x / CHUNK_SIZE);
                 const chunkY = Math.floor(p.y / CHUNK_SIZE);
 
-                // Check 3x3 grid around player (Current, Left, Right, Up, Down, Diagonals)
-                // This ensures chunks generate "In Front" of player before they get there
+                // Load 3x3 area
                 for(let cx = chunkX - 1; cx <= chunkX + 1; cx++) {
                     for(let cy = chunkY - 1; cy <= chunkY + 1; cy++) {
                         const chunkKey = `${cx},${cy}`;
-                        
-                        // If chunk doesn't exist, Create it and Broadcast it
                         if(!room.chunks[chunkKey]) {
                             const newChunk = generateChunkData(cx, cy);
-                            room.chunks[chunkKey] = newChunk; // Save to server memory
-                            
-                            // Send to everyone in room so they all see the same new planets
+                            room.chunks[chunkKey] = newChunk;
                             io.to(data.room).emit('newChunk', newChunk);
                         }
                     }
