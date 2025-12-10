@@ -1,4 +1,3 @@
-console.log("Attempting to start server...");
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
@@ -10,22 +9,35 @@ app.use(express.static(path.join(__dirname, 'public')));
 const rooms = {};
 
 // Helper: Generate random track
-function generateTrack() {
+function generateTrack(isOpenWorld) {
     const planets = [];
     let startX = 400;
     let startY = 300;
-    // Generate 10 planets in a sequence
-    for (let i = 0; i < 10; i++) {
-        planets.push({
-            x: startX,
-            y: startY,
-            radius: 30 + Math.random() * 40,
-            color: `hsl(${Math.random() * 360}, 70%, 50%)`,
-            isFinish: i === 9
-        });
-        // Move next planet to a random nearby location
-        startX += (Math.random() - 0.5) * 800;
-        startY -= (300 + Math.random() * 400); // Always move "up" generally
+    
+    // If Open World, generate scattered field
+    if(isOpenWorld) {
+        for(let i=0; i<50; i++) {
+            planets.push({
+                x: (Math.random() - 0.5) * 10000,
+                y: (Math.random() - 0.5) * 10000,
+                radius: 50 + Math.random() * 100,
+                color: `hsl(${Math.random() * 360}, 70%, 50%)`,
+                isFinish: false
+            });
+        }
+    } else {
+        // Linear Race Track
+        for (let i = 0; i < 10; i++) {
+            planets.push({
+                x: startX,
+                y: startY,
+                radius: 30 + Math.random() * 40,
+                color: `hsl(${Math.random() * 360}, 70%, 50%)`,
+                isFinish: i === 9
+            });
+            startX += (Math.random() - 0.5) * 800;
+            startY -= (300 + Math.random() * 400); 
+        }
     }
     return planets;
 }
@@ -43,41 +55,60 @@ function makeId(length) {
 io.on('connection', (socket) => {
     
     // Create Room
-    socket.on('createRoom', () => {
+    socket.on('createRoom', (type) => {
         const roomCode = makeId(4);
+        const isOpenWorld = (type === 'openworld');
+        
         rooms[roomCode] = {
             players: {},
-            track: generateTrack(),
-            state: 'lobby'
+            track: generateTrack(isOpenWorld),
+            state: isOpenWorld ? 'openworld' : 'lobby',
+            type: type || 'race'
         };
         socket.join(roomCode);
-        rooms[roomCode].players[socket.id] = { id: socket.id, x: 0, y: 0, angle: 0, progress: 0, finished: false };
-        socket.emit('roomCreated', roomCode);
+        // Default player
+        rooms[roomCode].players[socket.id] = { id: socket.id, x: 0, y: 0, angle: 0, finished: false };
+        
+        socket.emit('roomCreated', { code: roomCode, type: rooms[roomCode].type });
         io.to(roomCode).emit('updateLobby', rooms[roomCode].players);
+        
+        // If open world, send track immediately
+        if(isOpenWorld) socket.emit('gameStart', rooms[roomCode].track);
     });
 
     // Join Room
     socket.on('joinRoom', (roomCode) => {
-        if (rooms[roomCode] && rooms[roomCode].state === 'lobby') {
+        if (rooms[roomCode]) {
             socket.join(roomCode);
-            rooms[roomCode].players[socket.id] = { id: socket.id, x: 0, y: 0, angle: 0, progress: 0, finished: false };
-            socket.emit('roomJoined', { code: roomCode, track: rooms[roomCode].track });
+            rooms[roomCode].players[socket.id] = { id: socket.id, x: 0, y: 0, angle: 0, finished: false };
+            
+            socket.emit('roomJoined', { 
+                code: roomCode, 
+                track: rooms[roomCode].track,
+                type: rooms[roomCode].type
+            });
+            
             io.to(roomCode).emit('updateLobby', rooms[roomCode].players);
+            
+            // If joining an active open world
+            if(rooms[roomCode].type === 'openworld') {
+                 socket.emit('gameStart', rooms[roomCode].track);
+            }
+
         } else {
-            socket.emit('errorMsg', 'Room not found or game started');
+            socket.emit('errorMsg', 'Room not found');
         }
     });
 
-    // Start Game
+    // Start Game (Race Mode)
     socket.on('startGame', (roomCode) => {
         if (rooms[roomCode]) {
             rooms[roomCode].state = 'racing';
-            // Send track data to everyone if they haven't got it
             io.to(roomCode).emit('gameStart', rooms[roomCode].track);
         }
     });
 
-    // Player Movement Update
+    // Player Movement
     socket.on('playerMove', (data) => {
         const room = rooms[data.room];
         if (room && room.players[socket.id]) {
@@ -85,24 +116,19 @@ io.on('connection', (socket) => {
             p.x = data.x;
             p.y = data.y;
             p.angle = data.angle;
-            // Broadcast to others in room (excluding sender usually, but here simply broadcast to all)
             socket.to(data.room).emit('playerMoved', { id: socket.id, x: p.x, y: p.y, angle: p.angle });
         }
     });
 
-    // Player Finished
-    socket.on('playerFinished', (roomCode) => {
-        if(!rooms[roomCode]) return;
-        const player = rooms[roomCode].players[socket.id];
-        player.finished = true;
-        
-        // Calculate rank
-        const finishedCount = Object.values(rooms[roomCode].players).filter(p => p.finished).length;
-        socket.emit('gameOver', finishedCount); // 1 = 1st place, etc.
+    // CHAT SYSTEM
+    socket.on('chatMessage', (data) => {
+        // Broadcast to everyone in the room INCLUDING sender
+        io.to(data.room).emit('chatMessage', { id: socket.id, msg: data.msg });
     });
 
+    // Cleanup
     socket.on('disconnect', () => {
-        // Cleanup logic would go here
+        // Basic cleanup logic omitted for brevity
     });
 });
 
