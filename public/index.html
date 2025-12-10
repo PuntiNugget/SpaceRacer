@@ -2,86 +2,36 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Open World</title>
+    <title>Stellar Drift: Infinite</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; }
         canvas { display: block; }
         
-        /* UI Layer - Ensures UI sits ABOVE the game canvas */
-        #ui, #hud-layer { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            pointer-events: none; /* Let clicks pass through to canvas */
-            z-index: 10;
-        }
-
-        /* Interactive Menus */
-        .menu-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            display: flex; justify-content: center; align-items: center;
-            pointer-events: none;
-            z-index: 20;
-        }
+        #ui, #hud-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        .menu-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; pointer-events: none; z-index: 20; }
         
-        .menu-box { 
-            pointer-events: auto; background: rgba(16, 20, 35, 0.95); padding: 40px; 
-            border: 2px solid #00d2ff; text-align: center; border-radius: 12px; 
-            display: none; box-shadow: 0 0 30px rgba(0, 210, 255, 0.2); min-width: 300px;
-        }
+        .menu-box { pointer-events: auto; background: rgba(16, 20, 35, 0.95); padding: 40px; border: 2px solid #00d2ff; text-align: center; border-radius: 12px; display: none; box-shadow: 0 0 30px rgba(0, 210, 255, 0.2); min-width: 300px; }
         .visible { display: block; }
 
-        /* Buttons & Text */
         h1 { color: #00d2ff; text-transform: uppercase; margin-top: 0; letter-spacing: 2px; }
-        button { 
-            background: linear-gradient(45deg, #00d2ff, #0078ff); border: none; padding: 12px 24px; 
-            color: #fff; font-weight: bold; cursor: pointer; margin: 8px; font-size: 16px; 
-            border-radius: 4px; transition: 0.2s; text-transform: uppercase;
-        }
+        button { background: linear-gradient(45deg, #00d2ff, #0078ff); border: none; padding: 12px 24px; color: #fff; font-weight: bold; cursor: pointer; margin: 8px; font-size: 16px; border-radius: 4px; text-transform: uppercase; }
         button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0, 210, 255, 0.4); }
         button.secondary { background: #333; color: #aaa; }
-        button.secondary:hover { background: #444; color: #fff; }
         button.gold { background: linear-gradient(45deg, #ffd700, #ffaa00); color: black; }
-        input { padding: 12px; font-size: 16px; text-transform: uppercase; background: #050510; color: #fff; border: 1px solid #444; border-radius: 4px; text-align: center; }
+        input { padding: 12px; font-size: 16px; background: #050510; color: #fff; border: 1px solid #444; text-align: center; }
         
         /* HUD Top Left */
-        .hud-stats { 
-            position: absolute; top: 20px; left: 20px; 
-            font-size: 18px; font-weight: bold; color: #fff; 
-            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
-            pointer-events: none;
-        }
+        .hud-stats { position: absolute; top: 20px; left: 20px; font-size: 18px; font-weight: bold; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none; }
+        
+        /* COORDINATES DISPLAY */
+        .coord-box { color: #00ff00; font-family: 'Courier New', Courier, monospace; margin-top: 10px; }
 
-        /* --- CHAT SYSTEM (Bottom Left) --- */
-        #chatContainer {
-            position: absolute; bottom: 20px; left: 20px; 
-            width: 300px; 
-            pointer-events: auto; /* Needs to be clickable */
-            z-index: 100; /* High Z-Index to stay on top */
-            display: none; /* Hidden until game starts */
-        }
-        #chatMessages {
-            height: 150px; overflow-y: auto; background: rgba(0,0,0,0.6); 
-            border: 1px solid #444; padding: 10px; list-style: none; margin: 0;
-            color: #ddd; font-size: 13px; font-family: monospace; border-radius: 4px;
-        }
-        #chatMessages li { margin-bottom: 5px; }
+        #chatContainer { position: absolute; bottom: 20px; left: 20px; width: 300px; pointer-events: auto; z-index: 100; display: none; }
+        #chatMessages { height: 150px; overflow-y: auto; background: rgba(0,0,0,0.6); border: 1px solid #444; padding: 10px; list-style: none; margin: 0; color: #ddd; font-size: 13px; }
         #chatInput { width: 100%; box-sizing: border-box; margin-top: 5px; text-align: left; background: rgba(0,0,0,0.8); }
 
-        /* --- MINIMAP (Bottom Right) --- */
-        #minimapContainer {
-            position: absolute; bottom: 20px; right: 20px; 
-            width: 200px; height: 200px; 
-            background: rgba(0, 20, 40, 0.9); 
-            border: 2px solid #00d2ff; 
-            border-radius: 50%; 
-            pointer-events: none;
-            overflow: hidden;
-            z-index: 100; /* High Z-Index */
-            display: none; /* Hidden until game starts */
-            box-shadow: 0 0 20px rgba(0, 210, 255, 0.2);
-        }
+        #minimapContainer { position: absolute; bottom: 20px; right: 20px; width: 200px; height: 200px; background: rgba(0, 20, 40, 0.9); border: 2px solid #00d2ff; border-radius: 50%; pointer-events: none; overflow: hidden; z-index: 100; display: none; }
         #minimapCanvas { width: 100%; height: 100%; }
-        .map-label { position: absolute; bottom: 230px; right: 90px; color: #00d2ff; font-size: 12px; font-weight: bold; display:none; }
-
     </style>
 </head>
 <body>
@@ -92,41 +42,33 @@
     <div class="hud-stats">
         <div>POINTS: <span id="scoreDisplay" style="color:#00d2ff">0</span></div>
         <div id="planetCountDiv">PLANETS: <span id="planetCounter" style="color:#ffee00">0/0</span></div>
+        <div class="coord-box">POS: <span id="coordDisplay">0, 0</span></div>
         <div id="roomDisplay" style="font-size:14px; color:#888; margin-top:5px;"></div>
     </div>
 
     <div id="chatContainer">
-        <ul id="chatMessages">
-            <li style="color:yellow">System: Chat Initialized...</li>
-        </ul>
+        <ul id="chatMessages"><li style="color:yellow">System: Chat Initialized...</li></ul>
         <input id="chatInput" type="text" placeholder="Press Enter to Chat...">
     </div>
 
-    <div class="map-label" id="mapLabel">RADAR</div>
-    <div id="minimapContainer">
-        <canvas id="minimapCanvas" width="200" height="200"></canvas>
-    </div>
+    <div id="minimapContainer"><canvas id="minimapCanvas" width="200" height="200"></canvas></div>
 </div>
 
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Open World & Chat Update</p>
+        <p>Infinite Open World</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Race Multiplayer</button>
-        <br>
-        <button class="gold" onclick="createOpenWorld()">OPEN WORLD ONLINE</button>
-        <br>
+        <br><button class="gold" onclick="createOpenWorld()">OPEN WORLD ONLINE</button><br>
         <button class="secondary" onclick="showMenu('shopMenu')">Upgrade Ship</button>
     </div>
 
     <div id="multiplayerMenu" class="menu-box">
         <h2>Race Mode</h2>
-        <button onclick="createRoom('race')">Create Race</button>
-        <br><br>
+        <button onclick="createRoom('race')">Create Race</button><br><br>
         <input id="roomCodeInput" placeholder="Room Code">
-        <button onclick="joinRoom()">Join</button>
-        <br><br>
+        <button onclick="joinRoom()">Join</button><br><br>
         <button class="secondary" onclick="showMenu('mainMenu')">Back</button>
     </div>
 
@@ -141,8 +83,8 @@
         <h2>Upgrade Hangar</h2>
         <p>Points: <span id="shopPoints" style="color:#00d2ff">0</span></p>
         <div style="margin: 15px 0;">
-            <button onclick="buyUpgrade('speed')">Engine Lvl <span id="lvlSpeed">1</span> <br><small>(100 pts)</small></button>
-            <button onclick="buyUpgrade('handling')">Handling Lvl <span id="lvlHandle">1</span> <br><small>(100 pts)</small></button>
+            <button onclick="buyUpgrade('speed')">Engine Lvl <span id="lvlSpeed">1</span></button>
+            <button onclick="buyUpgrade('handling')">Handling Lvl <span id="lvlHandle">1</span></button>
         </div>
         <button class="secondary" onclick="showMenu('mainMenu')">Back</button>
     </div>
@@ -152,26 +94,16 @@
 <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    
-    // Minimap Context
-    const mmCanvas = document.getElementById('minimapCanvas');
-    const mmCtx = mmCanvas.getContext('2d');
-
+    const mmCtx = document.getElementById('minimapCanvas').getContext('2d');
     const socket = io();
 
-    // Game Config
-    let width, height;
-    let gameState = 'menu'; 
-    let roomCode = null;
-    let isHost = false;
-    let gameMode = 'race'; 
+    let width, height, gameState = 'menu', roomCode = null, isHost = false, gameMode = 'race';
+    let opponents = {}, track = [], hazards = [], particles = [];
+    let camera = { x: 0, y: 0 }, screenShake = 0;
     
-    let opponents = {}; 
-    let track = [];
-    let camera = { x: 0, y: 0 };
-    let screenShake = 0;
+    // Track IDs of objects to prevent duplicates during chunk loading
+    let loadedObjectIds = new Set();
 
-    // Player Data
     let stats = {
         points: parseInt(localStorage.getItem('rr_points')) || 0,
         speedLvl: parseInt(localStorage.getItem('rr_speed')) || 1,
@@ -181,36 +113,22 @@
     let player = { x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false };
     let keys = { up: false, down: false, left: false, right: false, shift: false, turbo: false };
 
-    // --- SETUP ---
-    function resize() {
-        width = canvas.width = window.innerWidth;
-        height = canvas.height = window.innerHeight;
-    }
+    function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
     window.addEventListener('resize', resize);
     resize();
 
-    // --- INPUTS ---
+    // Inputs
     const chatInput = document.getElementById('chatInput');
-    
-    // Chat Enter Key
     chatInput.addEventListener('keydown', (e) => {
         if(e.key === 'Enter' && chatInput.value.trim() !== "") {
-            // Send to server if online
-            if(roomCode) {
-                socket.emit('chatMessage', { room: roomCode, msg: chatInput.value });
-            } else {
-                // Local echo for Single Player
-                addChatMessage("You", chatInput.value, true);
-            }
-            chatInput.value = "";
-            e.stopPropagation(); // Stop game from reacting
+            if(roomCode) socket.emit('chatMessage', { room: roomCode, msg: chatInput.value });
+            else addChatMessage("You", chatInput.value, true);
+            chatInput.value = ""; e.stopPropagation();
         }
     });
 
-    // Game Controls
     window.addEventListener('keydown', (e) => {
-        if(document.activeElement === chatInput) return; // Don't move while typing
-
+        if(document.activeElement === chatInput) return;
         if(e.key === 'ArrowUp' || e.code === 'KeyW') keys.up = true;
         if(e.key === 'ArrowDown' || e.code === 'KeyS') keys.down = true;
         if(e.key === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
@@ -218,7 +136,6 @@
         if(e.shiftKey) keys.shift = true;
         if(e.code === 'KeyQ') keys.turbo = true;
     });
-
     window.addEventListener('keyup', (e) => {
         if(e.key === 'ArrowUp' || e.code === 'KeyW') keys.up = false;
         if(e.key === 'ArrowDown' || e.code === 'KeyS') keys.down = false;
@@ -228,16 +145,16 @@
         if(e.code === 'KeyQ') keys.turbo = false;
     });
 
-    // --- UI HELPERS ---
     function updateUI() {
         document.getElementById('scoreDisplay').innerText = stats.points;
         document.getElementById('shopPoints').innerText = stats.points;
         document.getElementById('lvlSpeed').innerText = stats.speedLvl;
         document.getElementById('lvlHandle').innerText = stats.handleLvl;
+        // COORDINATES UPDATE
+        document.getElementById('coordDisplay').innerText = `${Math.round(player.x)}, ${Math.round(player.y)}`;
         
-        if(gameMode === 'openworld') {
-            document.getElementById('planetCountDiv').style.display = 'none';
-        } else {
+        if(gameMode === 'openworld') document.getElementById('planetCountDiv').style.display = 'none';
+        else {
             document.getElementById('planetCountDiv').style.display = 'block';
             if(track.length > 0) document.getElementById('planetCounter').innerText = player.currentPlanetIndex + " / " + track.length;
         }
@@ -248,39 +165,33 @@
         const item = document.createElement('li');
         item.style.color = isSelf ? '#00ffff' : '#ff4444';
         item.innerText = `[${id}]: ${msg}`;
-        list.appendChild(item);
-        list.scrollTop = list.scrollHeight;
+        list.appendChild(item); list.scrollTop = list.scrollHeight;
     }
 
-    // Toggle HUD Visibility
     function setHudVisible(visible) {
         const display = visible ? 'block' : 'none';
         document.getElementById('chatContainer').style.display = display;
         document.getElementById('minimapContainer').style.display = display;
-        document.getElementById('mapLabel').style.display = display;
     }
 
     // --- GAME LOOP ---
     function gameLoop() {
-        ctx.fillStyle = '#050508';
-        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, width, height);
 
         if (gameState === 'playing' || gameState === 'openworld') {
             updatePlayerPhysics();
+            updateHazards();
             updateCamera();
             drawMinimap();
-            
+            updateUI(); // Continually update coords
             if(roomCode) socket.emit('playerMove', { room: roomCode, x: player.x, y: player.y, angle: player.angle });
         }
 
-        if(gameState !== 'menu' && gameState !== 'lobby') {
-            drawGame();
-        }
+        if(gameState !== 'menu' && gameState !== 'lobby') drawGame();
         requestAnimationFrame(gameLoop);
     }
     requestAnimationFrame(gameLoop);
 
-    // --- PHYSICS ---
     function getPlayerMaxSpeed() { return 7 + (stats.speedLvl * 1.5); }
     function getPlayerAccel() { return 0.2 + (stats.speedLvl * 0.02); }
     function getPlayerTurnSpeed() { return 0.05 + (stats.handleLvl * 0.005); }
@@ -294,35 +205,38 @@
     }
 
     function updatePlayerPhysics() {
-        let maxSpeed = getPlayerMaxSpeed();
-        let turnSpeed = getPlayerTurnSpeed();
-        let acceleration = getPlayerAccel();
-        let friction = 0.96; 
-
-        if (keys.turbo) { maxSpeed *= 2.5; acceleration *= 3.0; turnSpeed *= 0.4; screenShake = Math.max(screenShake, 3.0); }
+        let maxSpeed = getPlayerMaxSpeed(); let turnSpeed = getPlayerTurnSpeed(); let acceleration = getPlayerAccel(); let friction = 0.96; 
+        if (keys.turbo) { maxSpeed *= 2.5; acceleration *= 3.0; turnSpeed *= 0.4; screenShake = Math.max(screenShake, 3.0); createParticle(player.x, player.y, player.angle + Math.PI + (Math.random()-0.5), '#00ffff'); }
         if (keys.shift) { friction = 0.995; screenShake = Math.max(screenShake, 1.5); }
         if (keys.down) friction = 0.90; 
 
         if(keys.left) player.angle -= turnSpeed;
         if(keys.right) player.angle += turnSpeed;
-
         if(keys.up || keys.turbo) {
             player.vx += Math.cos(player.angle) * acceleration;
             player.vy += Math.sin(player.angle) * acceleration;
+            if(!keys.turbo && Math.random()>0.5) createParticle(player.x, player.y, player.angle, '#ffa500');
             if(!keys.turbo) screenShake = Math.max(screenShake, 0.5);
         }
 
         player.vx *= friction; player.vy *= friction;
-
         let speed = Math.hypot(player.vx, player.vy);
-        if (speed > maxSpeed) {
-            let ratio = maxSpeed / speed;
-            player.vx *= ratio; player.vy *= ratio;
-        }
-
+        if (speed > maxSpeed) { let ratio = maxSpeed / speed; player.vx *= ratio; player.vy *= ratio; }
         player.x += player.vx; player.y += player.vy;
         
-        if(gameMode !== 'openworld') checkCheckpoints(player);
+        if(gameMode === 'race') checkCheckpoints(player);
+    }
+
+    function updateHazards() {
+        // Move meteors
+        hazards.forEach(h => {
+            if(h.type === 'meteor') { h.x += h.vx; h.y += h.vy; }
+            let dist = Math.hypot(player.x - h.x, player.y - h.y);
+            if(h.type === 'blackhole' && dist < 400) {
+                 let force = 2000 / (dist * dist); 
+                 player.vx -= ((player.x-h.x)/dist)*force; player.vy -= ((player.y-h.y)/dist)*force;
+            }
+        });
     }
 
     function checkCheckpoints(entity) {
@@ -330,64 +244,62 @@
             let target = track[entity.currentPlanetIndex];
             let dist = Math.hypot(entity.x - target.x, entity.y - target.y);
             if (dist < target.radius + 30) {
-                if (entity.currentPlanetIndex < track.length - 1) {
-                    entity.currentPlanetIndex++;
-                    updateUI();
-                } else {
-                    entity.finished = true;
-                    if(entity === player) { alert("Finished!"); gameState = 'finished'; updateUI(); }
-                }
+                if (entity.currentPlanetIndex < track.length - 1) { entity.currentPlanetIndex++; } 
+                else { entity.finished = true; if(entity === player) { alert("Finished!"); gameState = 'finished'; } }
             }
         }
     }
 
-    // --- MINIMAP RENDER ---
+    function createParticle(x, y, angle, color) {
+        particles.push({x: x - Math.cos(angle)*20, y: y - Math.sin(angle)*20, vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2, life: 1.0, color: color});
+    }
+
     function drawMinimap() {
-        mmCtx.fillStyle = 'rgba(0, 20, 40, 0.9)';
-        mmCtx.fillRect(0, 0, 200, 200);
-
-        // Center = (100, 100)
-        let cx = 100, cy = 100;
-        let scale = 0.015; // Zoom
-
-        // Draw Planets
+        mmCtx.fillStyle = 'rgba(0, 20, 40, 0.9)'; mmCtx.fillRect(0, 0, 200, 200);
+        let cx = 100, cy = 100, scale = 0.015;
         track.forEach(p => {
-            let mx = (p.x - player.x) * scale + cx;
-            let my = (p.y - player.y) * scale + cy;
-            // Only draw if inside circle approximately
-            if(Math.hypot(mx-cx, my-cy) < 100) {
-                mmCtx.fillStyle = p.color;
-                mmCtx.beginPath(); mmCtx.arc(mx, my, 4, 0, Math.PI*2); mmCtx.fill();
+            let mx = (p.x - player.x) * scale + cx; let my = (p.y - player.y) * scale + cy;
+            if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = p.color; mmCtx.beginPath(); mmCtx.arc(mx, my, 4, 0, Math.PI*2); mmCtx.fill(); }
+        });
+        hazards.forEach(h => {
+            let mx = (h.x - player.x) * scale + cx; let my = (h.y - player.y) * scale + cy;
+            if(Math.hypot(mx-cx, my-cy) < 100) { 
+                mmCtx.fillStyle = h.type==='blackhole' ? 'purple' : '#888'; 
+                mmCtx.beginPath(); mmCtx.arc(mx, my, 2, 0, Math.PI*2); mmCtx.fill(); 
+            }
+        });
+        mmCtx.fillStyle = '#ff4444';
+        for(let id in opponents) {
+            let op = opponents[id]; let mx = (op.x - player.x) * scale + cx; let my = (op.y - player.y) * scale + cy;
+            if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.beginPath(); mmCtx.arc(mx, my, 3, 0, Math.PI*2); mmCtx.fill(); }
+        }
+        mmCtx.save(); mmCtx.translate(cx, cy); mmCtx.rotate(player.angle);
+        mmCtx.fillStyle = '#00ffff'; mmCtx.beginPath(); mmCtx.moveTo(5, 0); mmCtx.lineTo(-4, 3); mmCtx.lineTo(-4, -3); mmCtx.fill(); mmCtx.restore();
+    }
+
+    function drawGame() {
+        ctx.save(); ctx.translate(-camera.x, -camera.y);
+        ctx.fillStyle = 'white';
+        for(let i=0; i<100; i++) ctx.fillRect(((i*137)%3000 + player.x*0.1), ((i*94)%3000 + player.y*0.1), 2, 2);
+
+        hazards.forEach(h => {
+            if(h.type === 'blackhole') {
+                ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(Date.now() / 200);
+                ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2); ctx.fillStyle = 'black'; ctx.fill();
+                ctx.strokeStyle = 'purple'; ctx.lineWidth = 4; ctx.stroke(); ctx.restore();
+            } else if (h.type === 'wormhole') {
+                ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(-Date.now() / 100);
+                ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI*2); ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+            } else {
+                ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fillStyle = '#666'; ctx.fill();
             }
         });
 
-        // Draw Opponents
-        mmCtx.fillStyle = '#ff4444';
-        for(let id in opponents) {
-            let op = opponents[id];
-            let mx = (op.x - player.x) * scale + cx;
-            let my = (op.y - player.y) * scale + cy;
-            if(Math.hypot(mx-cx, my-cy) < 100) {
-                mmCtx.beginPath(); mmCtx.arc(mx, my, 3, 0, Math.PI*2); mmCtx.fill();
-            }
-        }
-
-        // Draw Player Arrow
-        mmCtx.save();
-        mmCtx.translate(cx, cy);
-        mmCtx.rotate(player.angle);
-        mmCtx.fillStyle = '#00ffff';
-        mmCtx.beginPath(); mmCtx.moveTo(5, 0); mmCtx.lineTo(-4, 3); mmCtx.lineTo(-4, -3); mmCtx.fill();
-        mmCtx.restore();
-    }
-
-    // --- MAIN RENDER ---
-    function drawGame() {
-        ctx.save();
-        ctx.translate(-camera.x, -camera.y);
-
-        ctx.fillStyle = 'white';
-        for(let i=0; i<100; i++) ctx.fillRect(((i*137)%3000 + player.x*0.1), ((i*94)%3000 + player.y*0.1), 2, 2);
+        particles.forEach((p, i) => {
+            p.x += p.vx; p.y += p.vy; p.life -= 0.05;
+            if(p.life <= 0) particles.splice(i, 1);
+            ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, 4, 4); ctx.globalAlpha = 1;
+        });
 
         if(gameMode === 'race' && track.length > 0) {
             ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 50;
@@ -402,102 +314,91 @@
         });
 
         for (let id in opponents) { if(id !== socket.id) drawRocket(opponents[id].x, opponents[id].y, opponents[id].angle, '#ff4444', false); }
-
-        if(!player.dead) {
-            let color = keys.turbo ? '#00ffff' : '#00d2ff';
-            drawRocket(player.x, player.y, player.angle, color, keys.up || keys.turbo);
-        }
-
+        let color = keys.turbo ? '#00ffff' : '#00d2ff';
+        drawRocket(player.x, player.y, player.angle, color, keys.up || keys.turbo);
         ctx.restore();
     }
 
     function drawRocket(x, y, angle, color, thrusting) {
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(angle);
-        ctx.fillStyle = color;
+        ctx.save(); ctx.translate(x, y); ctx.rotate(angle); ctx.fillStyle = color;
         ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-15, 12); ctx.lineTo(-10, 0); ctx.lineTo(-15, -12); ctx.fill();
         if(thrusting) {
             ctx.fillStyle = keys.turbo ? '#00ffff' : '#ffaa00';
-            ctx.beginPath();
-            let flameLen = keys.turbo ? 50 : 30;
-            ctx.moveTo(-15, 6); ctx.lineTo(-flameLen - Math.random()*15, 0); ctx.lineTo(-15, -6);
-            ctx.fill();
+            ctx.beginPath(); let flameLen = keys.turbo ? 50 : 30;
+            ctx.moveTo(-15, 6); ctx.lineTo(-flameLen - Math.random()*15, 0); ctx.lineTo(-15, -6); ctx.fill();
         }
         ctx.restore();
     }
 
-    // --- MENUS ---
     function showMenu(id) { document.querySelectorAll('.menu-box').forEach(el => el.classList.remove('visible')); if(id) document.getElementById(id).classList.add('visible'); }
     function buyUpgrade(type) { if(stats.points >= 100) { stats.points -= 100; if(type === 'speed') stats.speedLvl++; if(type === 'handling') stats.handleLvl++; localStorage.setItem('rr_points', stats.points); updateUI(); } else alert("Need 100 Points"); }
-
-    // --- SOCKETS ---
     function createRoom(type) { socket.emit('createRoom', type); }
     function joinRoom() { socket.emit('joinRoom', document.getElementById('roomCodeInput').value.toUpperCase()); }
     function requestStart() { if(roomCode && isHost) socket.emit('startGame', roomCode); }
     function createOpenWorld() { createRoom('openworld'); }
 
-    // Receive
+    // --- SOCKET EVENTS ---
     socket.on('roomCreated', (data) => { 
         roomCode = data.code; isHost = true; gameMode = data.type;
-        document.getElementById('lobbyCode').innerText = data.code; 
-        document.getElementById('lobbyMode').innerText = gameMode;
+        document.getElementById('lobbyCode').innerText = data.code; document.getElementById('lobbyMode').innerText = gameMode;
         if(gameMode === 'race') document.getElementById('startBtn').style.display='inline-block';
         showMenu(gameMode === 'openworld' ? null : 'lobbyMenu');
-        setHudVisible(true);
-        document.getElementById('roomDisplay').innerText = "ROOM: " + roomCode;
-        if(gameMode === 'openworld') addChatMessage("System", "Welcome to Open World.", false);
+        setHudVisible(true); document.getElementById('roomDisplay').innerText = "ROOM: " + roomCode;
+        if(gameMode === 'openworld') { loadedObjectIds.clear(); gameState = 'openworld'; addChatMessage("System", "Generating Open World...", false); }
     });
 
     socket.on('roomJoined', (data) => { 
-        roomCode = data.code; isHost = false; track = data.track; gameMode = data.type;
-        document.getElementById('lobbyCode').innerText = data.code; 
-        document.getElementById('lobbyMode').innerText = gameMode;
+        roomCode = data.code; isHost = false; gameMode = data.type;
+        document.getElementById('lobbyCode').innerText = data.code; document.getElementById('lobbyMode').innerText = gameMode;
         showMenu(gameMode === 'openworld' ? null : 'lobbyMenu');
-        setHudVisible(true);
-        document.getElementById('roomDisplay').innerText = "ROOM: " + roomCode;
+        setHudVisible(true); document.getElementById('roomDisplay').innerText = "ROOM: " + roomCode;
+        if(data.trackData) { track = data.trackData.planets; hazards = data.trackData.hazards || []; }
+        else { loadedObjectIds.clear(); track = []; hazards = []; } // Open world starts empty, waits for chunks
         if(gameMode === 'openworld') gameState = 'openworld';
         addChatMessage("System", "Joined Room: " + roomCode, false);
     });
 
     socket.on('updateLobby', (players) => { document.getElementById('playerList').innerHTML = Object.keys(players).map(id => `<div>Pilot ${id.substr(0,4)}</div>`).join(''); });
     
-    socket.on('gameStart', (serverTrack) => { 
-        track = serverTrack;
+    socket.on('gameStart', (serverData) => { 
+        if(serverData) { track = serverData.planets; hazards = serverData.hazards || []; }
         player.x = 0; player.y = 0; player.vx = 0; player.vy = 0; player.currentPlanetIndex = 0;
         gameState = (gameMode === 'openworld' ? 'openworld' : 'playing');
-        showMenu(null);
-        setHudVisible(true);
+        showMenu(null); setHudVisible(true);
     });
     
     socket.on('playerMoved', (data) => { opponents[data.id] = data; });
-    
-    socket.on('chatMessage', (data) => {
-        const isSelf = (data.id === socket.id);
-        addChatMessage(data.id.substr(0,4), data.msg, isSelf);
-    });
-
+    socket.on('chatMessage', (data) => { addChatMessage(data.id.substr(0,4), data.msg, data.id === socket.id); });
     socket.on('errorMsg', (msg) => alert(msg));
 
+    // --- CHUNK LOADING (NEW) ---
+    socket.on('newChunk', (chunkData) => {
+        // Add planets if not exist
+        chunkData.planets.forEach(p => {
+            if(!loadedObjectIds.has(p.id)) {
+                track.push(p);
+                loadedObjectIds.add(p.id);
+            }
+        });
+        // Add hazards if not exist
+        chunkData.hazards.forEach(h => {
+            if(!loadedObjectIds.has(h.id)) {
+                hazards.push(h);
+                loadedObjectIds.add(h.id);
+            }
+        });
+    });
+
     function setupSinglePlayer() {
-        // Simple mock of single player mode for testing UI
-        roomCode = null;
-        gameMode = 'race';
-        track = [];
+        roomCode = null; gameMode = 'race'; track = []; hazards = []; loadedObjectIds.clear();
         let startX = 400, startY = 300;
         for (let i = 0; i < 20; i++) {
-            track.push({ x: startX, y: startY, radius: 40 + Math.random()*30, color: `hsl(${Math.random()*360}, 60%, 40%)`, isFinish: i===19 });
+            track.push({ id:`sp_p_${i}`, x: startX, y: startY, radius: 40 + Math.random()*30, color: `hsl(${Math.random()*360}, 60%, 40%)`, isFinish: i===19 });
             startX += (Math.random() - 0.5) * 1500; startY -= (600 + Math.random() * 300);
         }
-        player.x = track[0].x; player.y = track[0].y; player.vx = 0; player.vy = 0;
-        player.currentPlanetIndex = 1;
-        
-        gameState = 'playing';
-        showMenu(null);
-        setHudVisible(true); // TURN ON HUD FOR SINGLE PLAYER
-        addChatMessage("System", "Single Player Mode Started", false);
+        player.x = track[0].x; player.y = track[0].y; player.vx = 0; player.vy = 0; player.currentPlanetIndex = 1;
+        gameState = 'playing'; showMenu(null); setHudVisible(true); addChatMessage("System", "Single Player Mode", false);
     }
-
 </script>
 </body>
 </html>
