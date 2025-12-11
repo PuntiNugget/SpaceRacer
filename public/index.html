@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Gravity Assist</title>
+    <title>Stellar Drift: Corridor Racer</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; }
         canvas { display: block; }
@@ -54,7 +54,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Gravity Slingshots Enabled</p>
+        <p>Corridor Racer</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Race Multiplayer</button>
         <br><button class="gold" onclick="createOpenWorld()">OPEN WORLD ONLINE</button><br>
@@ -110,7 +110,6 @@
         handleLvl: parseInt(localStorage.getItem('rr_handle')) || 1
     };
 
-    // Slingshot Variables
     let slingshotCharge = 1.0; 
     let orbitingPlanet = null;
 
@@ -156,10 +155,12 @@
         document.getElementById('lvlHandle').innerText = stats.handleLvl;
         document.getElementById('coordDisplay').innerText = `${Math.round(player.x)}, ${Math.round(player.y)}`;
         
-        // Update Charge UI
         if(slingshotCharge > 1.1) {
             document.getElementById('chargeUI').style.display = 'block';
-            document.getElementById('chargeVal').innerText = Math.round(slingshotCharge * 100) + "%";
+            let val = Math.round(slingshotCharge * 100) + "%";
+            // If super charged in open world
+            if(slingshotCharge > 5.0) val = "HYPER " + val;
+            document.getElementById('chargeVal').innerText = val;
         } else {
             document.getElementById('chargeUI').style.display = 'none';
         }
@@ -212,7 +213,6 @@
     function updatePlayerPhysics() {
         let maxSpeed = getPlayerMaxSpeed(); let turnSpeed = getPlayerTurnSpeed(); let acceleration = getPlayerAccel(); let friction = 0.96; 
         
-        // 1. Basic Movement
         if (keys.turbo) { maxSpeed *= 2.5; acceleration *= 3.0; turnSpeed *= 0.4; screenShake = Math.max(screenShake, 3.0); createParticle(player.x, player.y, player.angle + Math.PI + (Math.random()-0.5), '#00ffff'); }
         if (keys.shift) { friction = 0.995; screenShake = Math.max(screenShake, 1.5); }
         if (keys.down) friction = 0.90; 
@@ -226,64 +226,58 @@
             if(!keys.turbo) screenShake = Math.max(screenShake, 0.5);
         }
 
-        // 2. GRAVITY & SLINGSHOT LOGIC
+        // --- SLINGSHOT LOGIC ---
         let inAnyGravity = false;
         track.forEach(p => {
             let dx = p.x - player.x;
             let dy = p.y - player.y;
             let dist = Math.sqrt(dx*dx + dy*dy);
-            const gravityRadius = p.radius + 300; // Gravity Well Size
+            const gravityRadius = p.radius + 300; 
 
-            // Death Collision
             if(dist < p.radius) crashGame("Crashed into Planet");
 
-            // Gravity Logic
             if(dist < gravityRadius) {
                 inAnyGravity = true;
                 orbitingPlanet = p;
                 
-                // Pull towards planet
                 let gravityStrength = 1500 / (dist * dist);
                 player.vx += dx * gravityStrength * 0.01;
                 player.vy += dy * gravityStrength * 0.01;
 
-                // Loop Charging: The faster you orbit, the more charge
                 let speed = Math.hypot(player.vx, player.vy);
                 if(speed > 5) {
                     slingshotCharge += 0.01; 
-                    if(slingshotCharge > 3.0) slingshotCharge = 3.0; // Max Charge
+                    
+                    // --- RACE MODE CAP ---
+                    if(gameMode === 'race' && slingshotCharge > 3.0) slingshotCharge = 3.0;
+                    // Open World has NO cap (Infinite)
                 }
             }
         });
 
-        // 3. FLING (Exit Gravity)
         if(!inAnyGravity && orbitingPlanet !== null) {
             if(slingshotCharge > 1.2) {
-                // Apply Boost
                 player.vx *= slingshotCharge;
                 player.vy *= slingshotCharge;
-                screenShake = 30; // Big Boom
+                screenShake = 30 + (slingshotCharge * 10); 
                 for(let i=0; i<20; i++) createParticle(player.x, player.y, Math.random()*Math.PI*2, '#00ffff');
-                addChatMessage("System", "SLINGSHOT BOOST!", true);
+                addChatMessage("System", "SLINGSHOT BOOST x" + slingshotCharge.toFixed(1) + "!", true);
             }
             orbitingPlanet = null;
-            slingshotCharge = 1.0; // Reset
+            slingshotCharge = 1.0; 
         }
 
-        // 4. WALL COLLISION
+        // --- WALL COLLISION ---
         walls.forEach(w => {
-            // Simple Point vs Rotated Rectangle collision check logic
-            // Converting player pos to wall-local space
             let dx = player.x - w.x;
             let dy = player.y - w.y;
             let localX = dx * Math.cos(-w.angle) - dy * Math.sin(-w.angle);
             let localY = dx * Math.sin(-w.angle) + dy * Math.cos(-w.angle);
 
             if(Math.abs(localX) < w.w/2 && Math.abs(localY) < w.h/2) {
-                // Hit wall -> Bounce
-                player.vx *= -1.2; // Bouncy
+                player.vx *= -1.2; 
                 player.vy *= -1.2;
-                player.x += player.vx * 3; // Push out
+                player.x += player.vx * 3; 
                 player.y += player.vy * 3;
                 screenShake = 20;
             }
@@ -292,7 +286,6 @@
         player.vx *= friction; player.vy *= friction;
         let speed = Math.hypot(player.vx, player.vy);
         
-        // If boosted, allow exceeding max speed briefly
         if(slingshotCharge <= 1.0 && speed > maxSpeed) {
             let ratio = maxSpeed / speed;
             player.vx *= ratio; player.vy *= ratio;
@@ -300,9 +293,8 @@
 
         player.x += player.vx; player.y += player.vy;
         
-        // Finish Line Check
         if(track.length > 0) {
-            let finishPlanet = track[track.length - 1]; // Last planet is finish
+            let finishPlanet = track[track.length - 1]; 
             if(finishPlanet.isFinish) {
                 let d = Math.hypot(player.x - finishPlanet.x, player.y - finishPlanet.y);
                 if(d < finishPlanet.radius + 100) {
@@ -367,16 +359,12 @@
 
         spawnPoints.forEach(sp => { ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.radius, 0, Math.PI*2); ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = '#00ff00'; ctx.font = '12px Arial'; ctx.fillText('SPAWN', sp.x-20, sp.y-40); });
 
-        // Draw Gravity Rings & Planets
         track.forEach(p => {
-            // Gravity Well Ring
             ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 300, 0, Math.PI*2); ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 1; ctx.stroke();
-            // Planet Body
             ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill();
             if(p.isFinish) { ctx.fillStyle = 'white'; ctx.font = "30px Arial"; ctx.fillText("FINISH", p.x-50, p.y); }
         });
 
-        // Draw Walls
         walls.forEach(w => {
             ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(w.angle);
             ctx.fillStyle = '#555'; ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h);
@@ -395,7 +383,6 @@
         for (let id in opponents) { if(id !== socket.id) drawRocket(opponents[id].x, opponents[id].y, opponents[id].angle, '#ff4444', false); }
         
         if(!player.dead) {
-            // Glow if charged
             if(slingshotCharge > 1.2) { ctx.beginPath(); ctx.arc(player.x, player.y, 30, 0, Math.PI*2); ctx.fillStyle = `rgba(0, 255, 255, ${slingshotCharge * 0.2})`; ctx.fill(); }
             let color = keys.turbo ? '#00ffff' : '#00d2ff';
             drawRocket(player.x, player.y, player.angle, color, keys.up || keys.turbo);
@@ -429,11 +416,20 @@
 
     function setupSinglePlayer() {
         roomCode = null; gameMode = 'race'; track = []; hazards = []; spawnPoints = []; walls = []; loadedObjectIds.clear();
-        let startX = 400, startY = 300; spawnPoints.push({x: 400, y: 300, radius: 40});
+        let startX = 0, startY = 0; spawnPoints.push({x: 0, y: 0, radius: 40});
+        // Generate a local corridor track for single player testing
+        let pathPoints = [{x:0, y:0}];
         for (let i = 0; i < 20; i++) {
+            startX += (Math.random() - 0.5) * 1500; startY -= (1000 + Math.random() * 500); 
             track.push({ id:`sp_p_${i}`, x: startX, y: startY, radius: 60 + Math.random()*80, color: `hsl(${Math.random()*360}, 60%, 40%)`, isFinish: i===19 });
-            if(i>0) walls.push({ x: startX + (Math.random()-0.5)*600, y: startY + (Math.random()-0.5)*600, w: 200, h: 40, angle: Math.random() });
-            startX += (Math.random() - 0.5) * 1500; startY -= (600 + Math.random() * 300);
+            pathPoints.push({x:startX, y:startY});
+        }
+        // Walls
+        for(let i=0; i<pathPoints.length-1; i++) {
+            let p1 = pathPoints[i], p2 = pathPoints[i+1];
+            let dx = p2.x - p1.x, dy = p2.y - p1.y, dist = Math.hypot(dx, dy), angle = Math.atan2(dy, dx), mx = (p1.x+p2.x)/2, my = (p1.y+p2.y)/2, width = 1400;
+            walls.push({ x: mx + Math.cos(angle - Math.PI/2) * (width/2), y: my + Math.sin(angle - Math.PI/2) * (width/2), w: dist+200, h: 50, angle: angle });
+            walls.push({ x: mx + Math.cos(angle + Math.PI/2) * (width/2), y: my + Math.sin(angle + Math.PI/2) * (width/2), w: dist+200, h: 50, angle: angle });
         }
         respawnPlayer(); gameState = 'playing'; showMenu(null); setHudVisible(true); addChatMessage("System", "Single Player Mode", false);
     }
