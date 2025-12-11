@@ -11,36 +11,71 @@ const CHUNK_SIZE = 2000;
 
 function generateRaceTrack() {
     const items = { planets: [], hazards: [], spawnPoints: [], walls: [] };
-    let startX = 400;
-    let startY = 300;
+    let startX = 0;
+    let startY = 0;
     
-    items.spawnPoints.push({ x: 400, y: 300, radius: 50 });
+    // Starting Point
+    items.spawnPoints.push({ x: 0, y: 0, radius: 50 });
+
+    // Generate path first so we can build walls between points
+    const pathPoints = [];
+    pathPoints.push({ x: 0, y: 0 });
 
     for (let i = 0; i < 20; i++) {
-        // Planets
+        // Move in a general direction (Upwards with slight sway)
+        startX += (Math.random() - 0.5) * 1500; 
+        startY -= (1000 + Math.random() * 500); 
+
         items.planets.push({
             id: `p_${i}`,
             x: startX, y: startY,
-            radius: 50 + Math.random() * 60, // Bigger planets for orbiting
+            radius: 60 + Math.random() * 60,
             color: `hsl(${Math.random() * 360}, 70%, 50%)`,
-            isFinish: i === 19 // Only the last one is special
+            isFinish: i === 19
+        });
+        pathPoints.push({ x: startX, y: startY });
+    }
+
+    // Generate Walls connecting the planets (The "Corridor")
+    for(let i = 0; i < pathPoints.length - 1; i++) {
+        const p1 = pathPoints[i];
+        const p2 = pathPoints[i+1];
+
+        // Math to find the space between planets
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const dist = Math.hypot(dx, dy);
+        const angle = Math.atan2(dy, dx);
+        
+        // Midpoint
+        const mx = (p1.x + p2.x) / 2;
+        const my = (p1.y + p2.y) / 2;
+
+        // Track Width
+        const width = 1400; 
+
+        // Left Wall
+        items.walls.push({
+            id: `w_l_${i}`,
+            // Offset perpendicular to path
+            x: mx + Math.cos(angle - Math.PI/2) * (width/2),
+            y: my + Math.sin(angle - Math.PI/2) * (width/2),
+            w: dist + 200, // Length covers the gap
+            h: 50,         // Thickness
+            angle: angle   // Rotate to match path
         });
 
-        // Walls (Obstacles along the path)
-        if(i > 0 && i < 19) {
-            items.walls.push({
-                id: `w_${i}`,
-                x: startX + (Math.random()-0.5) * 600,
-                y: startY + (Math.random()-0.5) * 600,
-                w: 200 + Math.random() * 300,
-                h: 20 + Math.random() * 100,
-                angle: Math.random() * Math.PI
-            });
-        }
-
-        startX += (Math.random() - 0.5) * 1200;
-        startY -= (600 + Math.random() * 400); 
+        // Right Wall
+        items.walls.push({
+            id: `w_r_${i}`,
+            x: mx + Math.cos(angle + Math.PI/2) * (width/2),
+            y: my + Math.sin(angle + Math.PI/2) * (width/2),
+            w: dist + 200,
+            h: 50,
+            angle: angle
+        });
     }
+
     return items;
 }
 
@@ -59,7 +94,7 @@ function generateChunkData(cx, cy) {
         });
     }
 
-    // Planets (Gravity Wells)
+    // Planets
     const planetCount = Math.floor(Math.random() * 2) + 1;
     for(let i=0; i<planetCount; i++) {
         items.planets.push({
@@ -72,7 +107,7 @@ function generateChunkData(cx, cy) {
         });
     }
 
-    // Walls
+    // Random Walls (Open World still uses random scattering)
     const wallCount = Math.floor(Math.random() * 3);
     for(let i=0; i<wallCount; i++) {
         items.walls.push({
