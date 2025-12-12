@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: AI Revolution</title>
+    <title>Stellar Drift: Gravity Masters</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; }
         canvas { display: block; }
@@ -76,7 +76,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Advanced Bot AI Update</p>
+        <p>Loop to Boost. Crash to Die.</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Race Multiplayer</button>
         <br><button class="gold" onclick="findOpenWorldGame()">OPEN WORLD ONLINE</button><br>
@@ -111,15 +111,17 @@
         <h1 class="crash-title">WASTED</h1>
         <p id="crashReason" style="color:#aaa;">You hit a hazard.</p>
         <button onclick="respawnPlayer()">Reassemble Ship</button>
+        <br><br>
+        <button class="secondary" onclick="showMenu('mainMenu')">Main Menu</button>
     </div>
 
     <div id="finishMenu" class="menu-box">
-        <h1 class="win-title">FINISHED!</h1>
+        <h1 class="win-title">COURSE CLEARED!</h1>
         <h2 id="finalRankText" style="color:white;">1st Place</h2>
-        <div class="points-earned" style="font-size:24px; color:#00ff00;">+<span id="rewardPoints">0</span> Points</div>
+        <div class="points-earned" style="font-size:24px; color:#00ff00;">+200 Points</div>
         <br>
-        <button onclick="showMenu('mainMenu')">Main Menu</button>
-        <button class="secondary" onclick="setupSinglePlayer()">Race Again</button>
+        <button onclick="setupSinglePlayer()">Go Again</button>
+        <button class="secondary" onclick="showMenu('mainMenu')">Back to Menu</button>
     </div>
 </div>
 
@@ -299,9 +301,9 @@
         checkCheckpoints(player);
     }
 
-    // --- PHYSICS & AI CORE ---
+    // --- AI & PHYSICS ENGINE ---
     function handlePhysics(obj, isPlayer) {
-        // Stats
+        // Base Stats
         let maxSpeed = isPlayer ? getPlayerMaxSpeed() : (8 + stats.speedLvl);
         let accel = isPlayer ? getPlayerAccel() : 0.3;
         let friction = 0.96;
@@ -323,33 +325,30 @@
         else {
             if(obj.finished) return;
             
-            // AI Personality: Randomly change behavior every few seconds
-            if(Math.random() < 0.01) {
-                obj.mood = Math.random(); // 0-1 float to determine current skill
-            }
-
-            // Target Logic
+            // AI BRAIN
+            // State: 'travel' or 'orbit_escape'
+            // Calculate target position based on current target planet
             let target = track[obj.currentPlanetIndex];
+            
             if(target) {
-                // Base steering towards next planet
-                let dx = target.x - obj.x; 
-                let dy = target.y - obj.y;
-                let targetAngle = Math.atan2(dy, dx);
-                
-                // --- PERSONALITY VARIANCES ---
-                if(obj.style === 'noob') {
-                    // Rusty randomly steers 45 degrees wrong
-                    if(obj.mood < 0.3) targetAngle += (Math.PI / 4);
-                    else if (obj.mood > 0.7) targetAngle -= (Math.PI / 4);
-                } 
-                else if (obj.style === 'shadow') {
-                    // Shadow drives perfect if player is winning, badly if player is losing
-                    if(player.currentPlanetIndex > obj.currentPlanetIndex) {
-                        // Player winning, Shadow tries hard
-                        accel *= 1.2;
-                    } else {
-                        // Shadow losing, makes mistakes
-                        if(Math.random() < 0.05) targetAngle += Math.PI; // Flash of stupidity
+                let tx = target.x;
+                let ty = target.y;
+                let targetAngle = Math.atan2(ty - obj.y, tx - obj.x);
+
+                // --- 1. SLINGSHOT AI ---
+                if (obj.slingshotCharge > obj.targetCharge) {
+                    // READY TO LAUNCH
+                    // Ignore gravity, aim directly at next planet
+                    accel *= 3.0; // Boost
+                    // Aim logic remains standard "Go to target"
+                } else {
+                    // STILL CHARGING or TRAVELING
+                    // Personality adjustments
+                    if(obj.style === 'noob') {
+                        // Wobbly aim
+                        if(Math.random() < 0.05) obj.mood = Math.random(); // Change mood
+                        if(obj.mood < 0.3) targetAngle += 0.5;
+                        if(obj.mood > 0.7) targetAngle -= 0.5;
                     }
                 }
 
@@ -357,85 +356,86 @@
                 let diff = targetAngle - obj.angle;
                 while (diff < -Math.PI) diff += Math.PI * 2;
                 while (diff > Math.PI) diff -= Math.PI * 2;
-                
-                let turnRate = 0.06;
-                obj.angle += diff * turnRate;
-                
+                obj.angle += diff * 0.08;
+
                 // AI Thrust
                 obj.vx += Math.cos(obj.angle) * accel;
                 obj.vy += Math.sin(obj.angle) * accel;
             }
         }
 
-        // --- GRAVITY SLINGSHOT LOGIC (Shared) ---
+        // --- GRAVITY & COLLISIONS ---
         let inGravity = false;
         track.forEach(p => {
             let dx = p.x - obj.x; let dy = p.y - obj.y;
             let dist = Math.sqrt(dx*dx + dy*dy);
             
-            // Death Check
+            // LETHAL PLANETS (Unless it's the finish line)
             if(dist < p.radius) {
-                if(isPlayer) crashGame("Crashed into Planet");
-                else { 
-                    obj.x = spawnPoints[0].x; obj.y = spawnPoints[0].y; 
-                    obj.vx = 0; obj.vy = 0; obj.currentPlanetIndex = 0; 
+                if(p.isFinish) {
+                    if(isPlayer) finishRace(); // WINNER
+                    else obj.finished = true; // Bot finished
+                } else {
+                    if(isPlayer) crashGame("Crashed into Planet");
+                    else { 
+                        // Reset Bot
+                        obj.x = spawnPoints[0].x; obj.y = spawnPoints[0].y; 
+                        obj.vx = 0; obj.vy = 0; obj.currentPlanetIndex = 0; 
+                    }
                 }
             }
 
-            // Gravity Well
+            // GRAVITY WELL (Ring)
             if(dist < p.radius + 350) {
                 inGravity = true;
                 obj.orbitingPlanet = p;
                 
-                // Pull force
-                let g = 2000 / (dist * dist);
-                obj.vx += dx * g * 0.01; 
-                obj.vy += dy * g * 0.01;
+                // If AI is charged, they ignore gravity to escape
+                if(!isPlayer && obj.slingshotCharge > obj.targetCharge) {
+                    // Escaping... do nothing (physics will fly straight)
+                } else {
+                    // Being pulled in
+                    let g = 2000 / (dist * dist);
+                    obj.vx += dx * g * 0.01; 
+                    obj.vy += dy * g * 0.01;
 
-                // TANGENTIAL FORCE (Crucial for orbiting)
-                let tx = -dy; let ty = dx;
-                let tLen = Math.sqrt(tx*tx + ty*ty);
-                obj.vx += (tx / tLen) * 0.35; 
-                obj.vy += (ty / tLen) * 0.35;
+                    // TANGENTIAL FORCE (The Loop)
+                    // Push sideways so they don't crash into center
+                    let tx = -dy; let ty = dx;
+                    let tLen = Math.sqrt(tx*tx + ty*ty);
+                    obj.vx += (tx / tLen) * 0.35; 
+                    obj.vy += (ty / tLen) * 0.35;
 
-                // Charge Mechanics
-                let speed = Math.hypot(obj.vx, obj.vy);
-                if(speed > 5) {
-                    if(!obj.slingshotCharge) obj.slingshotCharge = 1.0;
-                    obj.slingshotCharge += 0.02;
-                    if(gameMode === 'race' && obj.slingshotCharge > 3.0) obj.slingshotCharge = 3.0;
-                }
-
-                // BOT ESCAPE LOGIC
-                // If Bot has charge and faces next planet, BOOST
-                if(!isPlayer && obj.slingshotCharge > 1.3) {
-                    let target = track[obj.currentPlanetIndex];
-                    if(target) {
-                        let tDx = target.x - obj.x; let tDy = target.y - obj.y;
-                        let angleToTarget = Math.atan2(tDy, tDx);
-                        let angleDiff = Math.abs(angleToTarget - Math.atan2(obj.vy, obj.vx));
-                        // If moving roughly towards target
-                        if(angleDiff < 1.0) {
-                            obj.vx *= obj.slingshotCharge;
-                            obj.vy *= obj.slingshotCharge;
-                            obj.boostTimer = 100;
-                            obj.slingshotCharge = 1.0; // Discharge
-                        }
+                    // Charge up
+                    if(Math.hypot(obj.vx, obj.vy) > 5) {
+                        if(!obj.slingshotCharge) obj.slingshotCharge = 1.0;
+                        obj.slingshotCharge += 0.02;
+                        // Player Cap
+                        if(isPlayer && gameMode === 'race' && obj.slingshotCharge > 3.0) obj.slingshotCharge = 3.0;
                     }
                 }
             }
         });
 
-        // --- FLING LOGIC (Player Exit Gravity) ---
-        if(isPlayer && !inGravity && obj.orbitingPlanet) {
-            if(obj.slingshotCharge > 1.2) {
-                obj.vx *= obj.slingshotCharge;
-                obj.vy *= obj.slingshotCharge;
+        // --- APPLY BOOST (Exit) ---
+        if(!inGravity && obj.orbitingPlanet) {
+            // Player Boost
+            if(isPlayer && obj.slingshotCharge > 1.2) {
+                obj.vx *= obj.slingshotCharge; obj.vy *= obj.slingshotCharge;
                 obj.boostTimer = 120; 
                 screenShake = 30 + (obj.slingshotCharge * 10);
                 addChatMessage("System", "SLINGSHOT x" + obj.slingshotCharge.toFixed(1), true);
                 for(let i=0; i<20; i++) createParticle(obj.x, obj.y, Math.random()*Math.PI*2, '#00ffff');
             }
+            // Bot Boost (Reset Logic)
+            if(!isPlayer) {
+                if(obj.slingshotCharge > 1.5) {
+                    obj.vx *= obj.slingshotCharge; obj.vy *= obj.slingshotCharge;
+                    obj.boostTimer = 60;
+                }
+                obj.targetCharge = (Math.random() * 1.5) + 1.5; // Randomize next target charge
+            }
+            
             obj.orbitingPlanet = null;
             obj.slingshotCharge = 1.0;
         }
@@ -470,24 +470,18 @@
 
     function updateBots() {
         if(roomCode) return;
-        bots.forEach(b => {
-            handlePhysics(b, false);
-        });
+        bots.forEach(b => { handlePhysics(b, false); });
     }
 
     function checkCheckpoints(entity) {
         if (track.length > 0) {
             let target = track[entity.currentPlanetIndex];
+            // Just update UI index, collision handles win now
             let dist = Math.hypot(entity.x - target.x, entity.y - target.y);
-            if (dist < target.radius + 300) {
+            if (dist < target.radius + 400) {
                 if (entity.currentPlanetIndex < track.length - 1) {
                     entity.currentPlanetIndex++;
                     updateUI();
-                } else {
-                    if(!entity.finished) {
-                        entity.finished = true;
-                        if(entity === player) finishRace();
-                    }
                 }
             }
         }
@@ -514,16 +508,9 @@
 
     function finishRace() {
         gameState = 'finished';
-        let rank = 1;
-        bots.forEach(b => { if(b.finished) rank++; });
-        let reward = 0;
-        if(rank === 1) reward = 300; else if(rank === 2) reward = 150; else if(rank === 3) reward = 50; else reward = 10;
-        stats.points += reward;
+        stats.points += 200; // EXACTLY 200 POINTS
         localStorage.setItem('rr_points', stats.points);
         updateUI();
-        let suffix = (rank===1)?"st":(rank===2)?"nd":(rank===3)?"rd":"th";
-        document.getElementById('finalRankText').innerText = rank + suffix + " Place";
-        document.getElementById('rewardPoints').innerText = reward;
         showMenu('finishMenu');
     }
 
@@ -542,7 +529,7 @@
         mmCtx.fillStyle = 'rgba(0, 20, 40, 0.9)'; mmCtx.fillRect(0, 0, 200, 200);
         let cx = 100, cy = 100, scale = 0.01;
         spawnPoints.forEach(sp => { let mx = (sp.x - player.x) * scale + cx; let my = (sp.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = '#00ff00'; mmCtx.beginPath(); mmCtx.arc(mx, my, 3, 0, Math.PI*2); mmCtx.fill(); }});
-        track.forEach(p => { let mx = (p.x - player.x) * scale + cx; let my = (p.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = p.color; mmCtx.beginPath(); mmCtx.arc(mx, my, 4, 0, Math.PI*2); mmCtx.fill(); }});
+        track.forEach(p => { let mx = (p.x - player.x) * scale + cx; let my = (p.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = p.isFinish ? '#ffd700' : p.color; mmCtx.beginPath(); mmCtx.arc(mx, my, 4, 0, Math.PI*2); mmCtx.fill(); }});
         walls.forEach(w => { let mx = (w.x - player.x) * scale + cx; let my = (w.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = '#fff'; mmCtx.fillRect(mx-2, my-2, 4, 4); }});
         mmCtx.save(); mmCtx.translate(cx, cy); mmCtx.rotate(player.angle); mmCtx.fillStyle = '#00ffff'; mmCtx.beginPath(); mmCtx.moveTo(5, 0); mmCtx.lineTo(-4, 3); mmCtx.lineTo(-4, -3); mmCtx.fill(); mmCtx.restore();
     }
@@ -554,9 +541,12 @@
         spawnPoints.forEach(sp => { ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.radius, 0, Math.PI*2); ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = '#00ff00'; ctx.font = '12px Arial'; ctx.fillText('SPAWN', sp.x-20, sp.y-40); });
 
         track.forEach(p => {
+            // Draw Gravity Ring
             ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 300, 0, Math.PI*2); ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 1; ctx.stroke();
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill();
+            // Draw Planet
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fillStyle = p.isFinish ? '#ffd700' : p.color; ctx.fill();
             if(p.isFinish) { ctx.fillStyle = 'white'; ctx.font = "30px Arial"; ctx.fillText("FINISH", p.x-50, p.y); }
+            // Highlight target
             if(gameMode==='race' && track.indexOf(p) === player.currentPlanetIndex) { ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 5; ctx.stroke(); }
         });
 
@@ -641,9 +631,9 @@
         }
         
         bots = [
-            { name: "Rusty", style: "noob", offsetSeed: Math.random()*100, x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false, slingshotCharge: 1.0, boostTimer: 0, mood: 0.5 },
-            { name: "Apex", style: "expert", offsetSeed: Math.random()*100, x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false, slingshotCharge: 1.0, boostTimer: 0, mood: 0.5 },
-            { name: "Shadow", style: "shadow", offsetSeed: Math.random()*100, x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false, slingshotCharge: 1.0, boostTimer: 0, mood: 0.5 }
+            { name: "Rusty", style: "noob", targetCharge: 1.5, x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false, slingshotCharge: 1.0 },
+            { name: "Apex", style: "expert", targetCharge: 2.8, x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false, slingshotCharge: 1.0 },
+            { name: "Shadow", style: "shadow", targetCharge: 2.0, x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false, slingshotCharge: 1.0 }
         ];
 
         respawnPlayer(); gameState = 'playing'; showMenu(null); setHudVisible(true); addChatMessage("System", "Single Player Mode", false);
