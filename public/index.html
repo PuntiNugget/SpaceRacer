@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Builder</title>
+    <title>Stellar Drift: Matchmaking</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; }
         canvas { display: block; }
@@ -21,6 +21,15 @@
         input { padding: 12px; font-size: 16px; background: #050510; color: #fff; border: 1px solid #444; text-align: center; }
         
         .hud-stats { position: absolute; top: 20px; left: 20px; font-size: 18px; font-weight: bold; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none; }
+        
+        /* ROOM CODE DISPLAY TOP RIGHT */
+        .room-display {
+            position: absolute; top: 20px; right: 20px;
+            font-size: 24px; color: #ffee00; font-weight: bold;
+            background: rgba(0,0,0,0.5); padding: 10px; border: 1px solid #ffee00;
+            pointer-events: none; display: none;
+        }
+
         .coord-box { color: #00ff00; font-family: monospace; margin-top: 10px; }
         .charge-box { margin-top: 10px; color: #00ffff; display: none; }
 
@@ -31,21 +40,15 @@
         #minimapContainer { position: absolute; bottom: 20px; right: 20px; width: 200px; height: 200px; background: rgba(0, 20, 40, 0.9); border: 2px solid #00d2ff; border-radius: 50%; pointer-events: none; overflow: hidden; z-index: 100; display: none; }
         .crash-title { color: #ff3333; font-size: 40px; margin-bottom: 10px; text-transform: uppercase; font-weight: 900; letter-spacing: 5px; }
 
-        /* BUILDER TOOLBAR */
         #buildToolbar {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
             background: rgba(0,0,0,0.8); border: 1px solid #00d2ff;
             border-radius: 8px; padding: 10px; pointer-events: auto;
-            display: none; /* Hidden unless in open world */
-            z-index: 100;
+            display: none; z-index: 100;
         }
-        .build-btn {
-            background: #333; border: 1px solid #555; color: white;
-            padding: 8px 15px; margin: 0 5px; cursor: pointer; font-size: 12px;
-        }
+        .build-btn { background: #333; border: 1px solid #555; color: white; padding: 8px 15px; margin: 0 5px; cursor: pointer; font-size: 12px; }
         .build-btn:hover { background: #555; }
         .build-btn.active { background: #00d2ff; color: black; border-color: #fff; }
-
     </style>
 </head>
 <body>
@@ -53,6 +56,8 @@
 <canvas id="gameCanvas"></canvas>
 
 <div id="hud-layer">
+    <div id="topRoomDisplay" class="room-display">ROOM: ----</div>
+
     <div class="hud-stats">
         <div>POINTS: <span id="scoreDisplay" style="color:#00d2ff">0</span></div>
         <div class="coord-box">POS: <span id="coordDisplay">0, 0</span></div>
@@ -78,10 +83,10 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Build Walls in Open World!</p>
+        <p>Tunnel Racers & Open Worlds</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Race Multiplayer</button>
-        <br><button class="gold" onclick="createOpenWorld()">OPEN WORLD ONLINE</button><br>
+        <br><button class="gold" onclick="findOpenWorldGame()">OPEN WORLD ONLINE</button><br>
         <button class="secondary" onclick="showMenu('shopMenu')">Upgrade Ship</button>
     </div>
 
@@ -128,8 +133,7 @@
     let camera = { x: 0, y: 0 }, screenShake = 0;
     let loadedObjectIds = new Set();
 
-    // Building Variables
-    let currentBuildTool = 0; // 0=Off, 1=Wall, 2=Long, 3=Box
+    let currentBuildTool = 0; 
     let mouseX = 0, mouseY = 0;
 
     let stats = {
@@ -151,33 +155,17 @@
     // Inputs
     const chatInput = document.getElementById('chatInput');
     
-    // Mouse Tracking
-    window.addEventListener('mousemove', (e) => {
-        mouseX = e.clientX;
-        mouseY = e.clientY;
-    });
+    window.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
 
-    // Mouse Clicking (For Building)
     window.addEventListener('mousedown', (e) => {
         if(gameState === 'openworld' && currentBuildTool > 0 && !player.dead) {
-            // Don't build if clicking on UI
             if(e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
-
-            // Calculate world position
-            const worldX = camera.x + mouseX;
-            const worldY = camera.y + mouseY;
-            
+            const worldX = camera.x + mouseX; const worldY = camera.y + mouseY;
             let w = 100, h = 20;
-            if(currentBuildTool === 2) { w = 400; h = 40; } // Barrier
-            if(currentBuildTool === 3) { w = 50; h = 50; } // Box
-
-            // Send to server
-            if(roomCode) {
-                socket.emit('placeObject', { room: roomCode, x: worldX, y: worldY, w: w, h: h, angle: player.angle });
-            } else {
-                // Local single player build
-                walls.push({ x: worldX, y: worldY, w: w, h: h, angle: player.angle, isUser: true });
-            }
+            if(currentBuildTool === 2) { w = 400; h = 40; }
+            if(currentBuildTool === 3) { w = 50; h = 50; }
+            if(roomCode) socket.emit('placeObject', { room: roomCode, x: worldX, y: worldY, w: w, h: h, angle: player.angle });
+            else walls.push({ x: worldX, y: worldY, w: w, h: h, angle: player.angle, isUser: true });
         }
     });
 
@@ -198,7 +186,6 @@
         if(e.shiftKey) keys.shift = true;
         if(e.code === 'KeyQ') keys.turbo = true;
         
-        // Build Hotkeys
         if(e.key === '1') setBuildTool(1);
         if(e.key === '2') setBuildTool(2);
         if(e.key === '3') setBuildTool(3);
@@ -214,7 +201,7 @@
     });
 
     function setBuildTool(toolId) {
-        if(gameMode !== 'openworld' && toolId !== 0) return; // Only in open world
+        if(gameMode !== 'openworld' && toolId !== 0) return;
         currentBuildTool = toolId;
         const btns = document.querySelectorAll('.build-btn');
         btns.forEach((b, i) => {
@@ -239,7 +226,6 @@
             document.getElementById('chargeUI').style.display = 'none';
         }
 
-        // Show/Hide Build Toolbar
         if(gameMode === 'openworld' && !player.dead) document.getElementById('buildToolbar').style.display = 'block';
         else document.getElementById('buildToolbar').style.display = 'none';
     }
@@ -256,6 +242,8 @@
         const display = visible ? 'block' : 'none';
         document.getElementById('chatContainer').style.display = display;
         document.getElementById('minimapContainer').style.display = display;
+        document.getElementById('topRoomDisplay').style.display = display;
+        if(roomCode) document.getElementById('topRoomDisplay').innerText = "ROOM: " + roomCode;
     }
 
     function gameLoop() {
@@ -437,7 +425,6 @@
             let color = keys.turbo ? '#00ffff' : '#00d2ff';
             drawRocket(player.x, player.y, player.angle, color, keys.up || keys.turbo);
             
-            // Draw Ghost Wall if building
             if(currentBuildTool > 0) {
                 let w = 100, h = 20;
                 if(currentBuildTool === 2) { w = 400; h = 40; }
@@ -465,9 +452,18 @@
     function createRoom(type) { socket.emit('createRoom', type); }
     function joinRoom() { socket.emit('joinRoom', document.getElementById('roomCodeInput').value.toUpperCase()); }
     function requestStart() { if(roomCode && isHost) socket.emit('startGame', roomCode); }
-    function createOpenWorld() { createRoom('openworld'); }
+    
+    // NEW MATCHMAKING CALL
+    function findOpenWorldGame() {
+        socket.emit('findOpenWorld');
+    }
 
     // --- EVENTS ---
+    socket.on('matchFound', (code) => {
+        // Automatically join the room found by server
+        socket.emit('joinRoom', code);
+    });
+
     socket.on('roomCreated', (data) => { roomCode = data.code; isHost = true; gameMode = data.type; document.getElementById('lobbyCode').innerText = data.code; showMenu(gameMode === 'openworld' ? null : 'lobbyMenu'); setHudVisible(true); if(gameMode === 'openworld') { loadedObjectIds.clear(); gameState = 'openworld'; addChatMessage("System", "Generating Open World...", false); respawnPlayer(); } });
     socket.on('roomJoined', (data) => { roomCode = data.code; isHost = false; gameMode = data.type; document.getElementById('lobbyCode').innerText = data.code; showMenu(gameMode === 'openworld' ? null : 'lobbyMenu'); setHudVisible(true); if(data.trackData) { track = data.trackData.planets; hazards = data.trackData.hazards || []; spawnPoints = data.trackData.spawnPoints || []; walls = data.trackData.walls || []; } else { loadedObjectIds.clear(); track = []; hazards = []; spawnPoints = []; walls = []; } if(gameMode === 'openworld') { gameState = 'openworld'; respawnPlayer(); } addChatMessage("System", "Joined Room: " + roomCode, false); });
     socket.on('updateLobby', (players) => { document.getElementById('playerList').innerHTML = Object.keys(players).map(id => `<div>Pilot ${id.substr(0,4)}</div>`).join(''); });
@@ -480,10 +476,17 @@
     function setupSinglePlayer() {
         roomCode = null; gameMode = 'race'; track = []; hazards = []; spawnPoints = []; walls = []; loadedObjectIds.clear();
         let startX = 0, startY = 0; spawnPoints.push({x: 0, y: 0, radius: 40});
+        let pathPoints = [{x:0, y:0}];
         for (let i = 0; i < 20; i++) {
+            startX += (Math.random() - 0.5) * 1500; startY -= (1000 + Math.random() * 500); 
             track.push({ id:`sp_p_${i}`, x: startX, y: startY, radius: 60 + Math.random()*80, color: `hsl(${Math.random()*360}, 60%, 40%)`, isFinish: i===19 });
-            if(i>0) walls.push({ x: startX + (Math.random()-0.5)*600, y: startY + (Math.random()-0.5)*600, w: 200, h: 40, angle: Math.random() });
-            startX += (Math.random() - 0.5) * 1500; startY -= (600 + Math.random() * 300);
+            pathPoints.push({x:startX, y:startY});
+        }
+        for(let i=0; i<pathPoints.length-1; i++) {
+            let p1 = pathPoints[i], p2 = pathPoints[i+1];
+            let dx = p2.x - p1.x, dy = p2.y - p1.y, dist = Math.hypot(dx, dy), angle = Math.atan2(dy, dx), mx = (p1.x+p2.x)/2, my = (p1.y+p2.y)/2, width = 1400;
+            walls.push({ x: mx + Math.cos(angle - Math.PI/2) * (width/2), y: my + Math.sin(angle - Math.PI/2) * (width/2), w: dist+200, h: 50, angle: angle });
+            walls.push({ x: mx + Math.cos(angle + Math.PI/2) * (width/2), y: my + Math.sin(angle + Math.PI/2) * (width/2), w: dist+200, h: 50, angle: angle });
         }
         respawnPlayer(); gameState = 'playing'; showMenu(null); setHudVisible(true); addChatMessage("System", "Single Player Mode", false);
     }
