@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Matchmaking</title>
+    <title>Stellar Drift: Single Player Fixed</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; }
         canvas { display: block; }
@@ -21,15 +21,6 @@
         input { padding: 12px; font-size: 16px; background: #050510; color: #fff; border: 1px solid #444; text-align: center; }
         
         .hud-stats { position: absolute; top: 20px; left: 20px; font-size: 18px; font-weight: bold; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none; }
-        
-        /* ROOM CODE DISPLAY TOP RIGHT */
-        .room-display {
-            position: absolute; top: 20px; right: 20px;
-            font-size: 24px; color: #ffee00; font-weight: bold;
-            background: rgba(0,0,0,0.5); padding: 10px; border: 1px solid #ffee00;
-            pointer-events: none; display: none;
-        }
-
         .coord-box { color: #00ff00; font-family: monospace; margin-top: 10px; }
         .charge-box { margin-top: 10px; color: #00ffff; display: none; }
 
@@ -38,7 +29,11 @@
         #chatInput { width: 100%; box-sizing: border-box; margin-top: 5px; text-align: left; background: rgba(0,0,0,0.8); }
 
         #minimapContainer { position: absolute; bottom: 20px; right: 20px; width: 200px; height: 200px; background: rgba(0, 20, 40, 0.9); border: 2px solid #00d2ff; border-radius: 50%; pointer-events: none; overflow: hidden; z-index: 100; display: none; }
+        
+        /* Game Over / Reward UI */
         .crash-title { color: #ff3333; font-size: 40px; margin-bottom: 10px; text-transform: uppercase; font-weight: 900; letter-spacing: 5px; }
+        .win-title { color: #ffd700; font-size: 40px; margin-bottom: 10px; text-transform: uppercase; font-weight: 900; letter-spacing: 5px; }
+        .points-earned { font-size: 24px; color: #00ff00; margin: 20px 0; font-weight: bold; }
 
         #buildToolbar {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -47,7 +42,6 @@
             display: none; z-index: 100;
         }
         .build-btn { background: #333; border: 1px solid #555; color: white; padding: 8px 15px; margin: 0 5px; cursor: pointer; font-size: 12px; }
-        .build-btn:hover { background: #555; }
         .build-btn.active { background: #00d2ff; color: black; border-color: #fff; }
     </style>
 </head>
@@ -56,12 +50,14 @@
 <canvas id="gameCanvas"></canvas>
 
 <div id="hud-layer">
-    <div id="topRoomDisplay" class="room-display">ROOM: ----</div>
+    <div id="topRoomDisplay" class="room-display" style="position:absolute; top:20px; right:20px; color:#aaa; font-weight:bold;"></div>
 
     <div class="hud-stats">
         <div>POINTS: <span id="scoreDisplay" style="color:#00d2ff">0</span></div>
+        <div id="planetCountDiv">PLANETS: <span id="planetCounter" style="color:#ffee00">0/0</span></div>
         <div class="coord-box">POS: <span id="coordDisplay">0, 0</span></div>
         <div id="chargeUI" class="charge-box">SLINGSHOT: <span id="chargeVal">0%</span></div>
+        <div style="margin-top:10px;">RANK: <span id="rankDisplay">1/4</span></div>
     </div>
 
     <div id="chatContainer">
@@ -71,10 +67,9 @@
 
     <div id="buildToolbar">
         <button class="build-btn active" onclick="setBuildTool(0)">OFF</button>
-        <button class="build-btn" onclick="setBuildTool(1)">WALL (1)</button>
-        <button class="build-btn" onclick="setBuildTool(2)">BARRIER (2)</button>
-        <button class="build-btn" onclick="setBuildTool(3)">CRATE (3)</button>
-        <span style="font-size:10px; color:#aaa; margin-left:10px;">CLICK TO PLACE</span>
+        <button class="build-btn" onclick="setBuildTool(1)">WALL</button>
+        <button class="build-btn" onclick="setBuildTool(2)">BARRIER</button>
+        <button class="build-btn" onclick="setBuildTool(3)">CRATE</button>
     </div>
 
     <div id="minimapContainer"><canvas id="minimapCanvas" width="200" height="200"></canvas></div>
@@ -83,7 +78,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Tunnel Racers & Open Worlds</p>
+        <p>Bots & Rewards Fixed</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Race Multiplayer</button>
         <br><button class="gold" onclick="findOpenWorldGame()">OPEN WORLD ONLINE</button><br>
@@ -119,6 +114,14 @@
         <p id="crashReason" style="color:#aaa;">You hit a hazard.</p>
         <button onclick="respawnPlayer()">Reassemble Ship</button>
     </div>
+
+    <div id="finishMenu" class="menu-box">
+        <h1 class="win-title">FINISHED!</h1>
+        <h2 id="finalRankText" style="color:white;">1st Place</h2>
+        <div class="points-earned">+<span id="rewardPoints">0</span> Points</div>
+        <button onclick="showMenu('mainMenu')">Main Menu</button>
+        <button class="secondary" onclick="setupSinglePlayer()">Race Again</button>
+    </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -129,7 +132,7 @@
     const socket = io();
 
     let width, height, gameState = 'menu', roomCode = null, isHost = false, gameMode = 'race';
-    let opponents = {}, track = [], hazards = [], spawnPoints = [], walls = [], particles = [];
+    let opponents = {}, track = [], hazards = [], spawnPoints = [], walls = [], particles = [], bots = [];
     let camera = { x: 0, y: 0 }, screenShake = 0;
     let loadedObjectIds = new Set();
 
@@ -145,14 +148,13 @@
     let slingshotCharge = 1.0; 
     let orbitingPlanet = null;
 
-    let player = { x: 0, y: 0, vx: 0, vy: 0, angle: 0, finished: false, dead: false };
+    let player = { x: 0, y: 0, vx: 0, vy: 0, angle: 0, finished: false, dead: false, currentPlanetIndex: 0 };
     let keys = { up: false, down: false, left: false, right: false, shift: false, turbo: false };
 
     function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
     window.addEventListener('resize', resize);
     resize();
 
-    // Inputs
     const chatInput = document.getElementById('chatInput');
     
     window.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
@@ -185,7 +187,6 @@
         if(e.key === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
         if(e.shiftKey) keys.shift = true;
         if(e.code === 'KeyQ') keys.turbo = true;
-        
         if(e.key === '1') setBuildTool(1);
         if(e.key === '2') setBuildTool(2);
         if(e.key === '3') setBuildTool(3);
@@ -203,10 +204,8 @@
     function setBuildTool(toolId) {
         if(gameMode !== 'openworld' && toolId !== 0) return;
         currentBuildTool = toolId;
-        const btns = document.querySelectorAll('.build-btn');
-        btns.forEach((b, i) => {
-            if(i === toolId) b.classList.add('active');
-            else b.classList.remove('active');
+        document.querySelectorAll('.build-btn').forEach((b, i) => {
+            if(i === toolId) b.classList.add('active'); else b.classList.remove('active');
         });
     }
 
@@ -228,6 +227,23 @@
 
         if(gameMode === 'openworld' && !player.dead) document.getElementById('buildToolbar').style.display = 'block';
         else document.getElementById('buildToolbar').style.display = 'none';
+
+        if(gameMode === 'race') {
+            let activeBots = bots.filter(b => !b.finished);
+            let myRank = 1;
+            // Simple distance check to end
+            if(track.length > 0) {
+                let finish = track[track.length-1];
+                let myDist = Math.hypot(finish.x - player.x, finish.y - player.y);
+                activeBots.forEach(b => {
+                    let bDist = Math.hypot(finish.x - b.x, finish.y - b.y);
+                    if(bDist < myDist) myRank++;
+                });
+            }
+            document.getElementById('rankDisplay').innerText = myRank + "/" + (bots.length + 1);
+        } else {
+            document.getElementById('rankDisplay').innerText = "-";
+        }
     }
 
     function addChatMessage(id, msg, isSelf) {
@@ -244,8 +260,10 @@
         document.getElementById('minimapContainer').style.display = display;
         document.getElementById('topRoomDisplay').style.display = display;
         if(roomCode) document.getElementById('topRoomDisplay').innerText = "ROOM: " + roomCode;
+        else document.getElementById('topRoomDisplay').innerText = "SINGLE PLAYER";
     }
 
+    // --- GAME LOOP ---
     function gameLoop() {
         ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, width, height);
 
@@ -255,6 +273,7 @@
                 if(roomCode) socket.emit('playerMove', { room: roomCode, x: player.x, y: player.y, angle: player.angle });
             }
             updateHazards();
+            updateBots(); // CLIENT SIDE BOTS FOR SINGLE PLAYER
             updateCamera();
             drawMinimap();
             updateUI();
@@ -277,72 +296,118 @@
     }
 
     function updatePlayerPhysics() {
-        let maxSpeed = getPlayerMaxSpeed(); let turnSpeed = getPlayerTurnSpeed(); let acceleration = getPlayerAccel(); let friction = 0.96; 
-        
-        if (keys.turbo) { maxSpeed *= 2.5; acceleration *= 3.0; turnSpeed *= 0.4; screenShake = Math.max(screenShake, 3.0); createParticle(player.x, player.y, player.angle + Math.PI + (Math.random()-0.5), '#00ffff'); }
-        if (keys.shift) { friction = 0.995; screenShake = Math.max(screenShake, 1.5); }
-        if (keys.down) friction = 0.90; 
+        handlePhysics(player, true);
+        checkCheckpoints(player);
+    }
 
-        if(keys.left) player.angle -= turnSpeed;
-        if(keys.right) player.angle += turnSpeed;
-        if(keys.up || keys.turbo) {
-            player.vx += Math.cos(player.angle) * acceleration;
-            player.vy += Math.sin(player.angle) * acceleration;
-            if(!keys.turbo && Math.random()>0.5) createParticle(player.x, player.y, player.angle, '#ffa500');
-            if(!keys.turbo) screenShake = Math.max(screenShake, 0.5);
+    // Unified Physics for Player AND Bots
+    function handlePhysics(obj, isPlayer) {
+        let maxSpeed = isPlayer ? getPlayerMaxSpeed() : (7 + stats.speedLvl);
+        let accel = isPlayer ? getPlayerAccel() : 0.2;
+        let friction = 0.96;
+
+        if (isPlayer) {
+            // Player Inputs
+            if (keys.turbo) { maxSpeed *= 2.5; accel *= 3.0; screenShake = Math.max(screenShake, 3.0); createParticle(obj.x, obj.y, obj.angle + Math.PI, '#00ffff'); }
+            if (keys.shift) { friction = 0.995; screenShake = Math.max(screenShake, 1.5); }
+            if (keys.down) friction = 0.90; 
+            if(keys.left) obj.angle -= getPlayerTurnSpeed();
+            if(keys.right) obj.angle += getPlayerTurnSpeed();
+            if(keys.up || keys.turbo) {
+                obj.vx += Math.cos(obj.angle) * accel;
+                obj.vy += Math.sin(obj.angle) * accel;
+            }
+        } else {
+            // Bot AI Inputs
+            if(obj.finished) return;
+            // 1. Target next planet
+            let target = track[obj.currentPlanetIndex];
+            if(target) {
+                let dx = target.x - obj.x; let dy = target.y - obj.y;
+                let targetAngle = Math.atan2(dy, dx);
+                // Simple steering
+                let diff = targetAngle - obj.angle;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                obj.angle += diff * 0.05;
+                // Thrust
+                obj.vx += Math.cos(obj.angle) * accel;
+                obj.vy += Math.sin(obj.angle) * accel;
+            }
         }
 
-        // Slingshot
-        let inAnyGravity = false;
+        // Gravity Slingshot Logic (Shared)
+        let inGravity = false;
         track.forEach(p => {
-            let dx = p.x - player.x; let dy = p.y - player.y;
+            let dx = p.x - obj.x; let dy = p.y - obj.y;
             let dist = Math.sqrt(dx*dx + dy*dy);
-            const gravityRadius = p.radius + 300; 
-            if(dist < p.radius) crashGame("Crashed into Planet");
-            if(dist < gravityRadius) {
-                inAnyGravity = true; orbitingPlanet = p;
-                let gravityStrength = 1500 / (dist * dist);
-                player.vx += dx * gravityStrength * 0.01; player.vy += dy * gravityStrength * 0.01;
-                let speed = Math.hypot(player.vx, player.vy);
-                if(speed > 5) {
-                    slingshotCharge += 0.01; 
-                    if(gameMode === 'race' && slingshotCharge > 3.0) slingshotCharge = 3.0;
-                }
+            if(dist < p.radius) {
+                if(isPlayer) crashGame("Crashed into Planet");
+                else { obj.x = spawnPoints[0].x; obj.y = spawnPoints[0].y; obj.vx=0; obj.vy=0; } // Reset bot
+            }
+            if(dist < p.radius + 300) {
+                inGravity = true;
+                let g = 1500 / (dist * dist);
+                obj.vx += dx * g * 0.01; obj.vy += dy * g * 0.01;
+                // Charge logic logic omitted for bots for simplicity
+                if(isPlayer && Math.hypot(obj.vx, obj.vy) > 5) slingshotCharge += 0.01;
             }
         });
 
-        if(!inAnyGravity && orbitingPlanet !== null) {
-            if(slingshotCharge > 1.2) {
-                player.vx *= slingshotCharge; player.vy *= slingshotCharge;
-                screenShake = 30 + (slingshotCharge * 10); 
-                for(let i=0; i<20; i++) createParticle(player.x, player.y, Math.random()*Math.PI*2, '#00ffff');
-                addChatMessage("System", "SLINGSHOT BOOST x" + slingshotCharge.toFixed(1) + "!", true);
-            }
-            orbitingPlanet = null; slingshotCharge = 1.0; 
-        }
-
-        // Wall Collision
+        // Wall Collision (Shared)
         walls.forEach(w => {
-            let dx = player.x - w.x; let dy = player.y - w.y;
+            let dx = obj.x - w.x; let dy = obj.y - w.y;
             let localX = dx * Math.cos(-w.angle) - dy * Math.sin(-w.angle);
             let localY = dx * Math.sin(-w.angle) + dy * Math.cos(-w.angle);
             if(Math.abs(localX) < w.w/2 && Math.abs(localY) < w.h/2) {
-                player.vx *= -1.2; player.vy *= -1.2;
-                player.x += player.vx * 3; player.y += player.vy * 3;
-                screenShake = 20;
+                obj.vx *= -1.2; obj.vy *= -1.2;
+                obj.x += obj.vx * 3; obj.y += obj.vy * 3;
+                if(isPlayer) screenShake = 20;
             }
         });
 
-        player.vx *= friction; player.vy *= friction;
-        let speed = Math.hypot(player.vx, player.vy);
-        if(slingshotCharge <= 1.0 && speed > maxSpeed) { let ratio = maxSpeed / speed; player.vx *= ratio; player.vy *= ratio; }
-        player.x += player.vx; player.y += player.vy;
+        obj.vx *= friction; obj.vy *= friction;
         
-        if(track.length > 0) {
-            let finishPlanet = track[track.length - 1]; 
-            if(finishPlanet.isFinish) {
-                let d = Math.hypot(player.x - finishPlanet.x, player.y - finishPlanet.y);
-                if(d < finishPlanet.radius + 100) { alert("COURSE COMPLETED!"); gameState = 'finished'; }
+        // Cap Speed
+        let speed = Math.hypot(obj.vx, obj.vy);
+        if((!isPlayer || slingshotCharge <= 1.0) && speed > maxSpeed) {
+            let r = maxSpeed/speed; obj.vx*=r; obj.vy*=r;
+        }
+
+        obj.x += obj.vx; obj.y += obj.vy;
+    }
+
+    function updateBots() {
+        // Only run if single player (roomCode is null)
+        if(roomCode) return;
+        bots.forEach(b => {
+            handlePhysics(b, false);
+            // Bot Checkpoints
+            let target = track[b.currentPlanetIndex];
+            if(target) {
+                let dist = Math.hypot(b.x - target.x, b.y - target.y);
+                if(dist < target.radius + 100) {
+                    if(b.currentPlanetIndex < track.length-1) b.currentPlanetIndex++;
+                    else b.finished = true;
+                }
+            }
+        });
+    }
+
+    function checkCheckpoints(entity) {
+        if (track.length > 0) {
+            let target = track[entity.currentPlanetIndex];
+            let dist = Math.hypot(entity.x - target.x, entity.y - target.y);
+            if (dist < target.radius + 100) {
+                if (entity.currentPlanetIndex < track.length - 1) {
+                    entity.currentPlanetIndex++;
+                    updateUI();
+                } else {
+                    if(!entity.finished) {
+                        entity.finished = true;
+                        finishRace(); // Trigger Rewards
+                    }
+                }
             }
         }
     }
@@ -352,10 +417,7 @@
             if(h.type === 'meteor') { h.x += h.vx; h.y += h.vy; }
             if(!player.dead) {
                 let dist = Math.hypot(player.x - h.x, player.y - h.y);
-                if(h.type === 'blackhole') {
-                     if(dist < 400) { let force = 2000 / (dist * dist); player.vx -= ((player.x-h.x)/dist)*force; player.vy -= ((player.y-h.y)/dist)*force; }
-                     if(dist < 30) crashGame("Crushed by Singularity");
-                }
+                if(h.type === 'blackhole' && dist < 30) crashGame("Crushed by Singularity");
                 if(h.type === 'meteor' && dist < h.radius + 15) crashGame("Vaporized by Meteor");
             }
         });
@@ -367,6 +429,28 @@
         for(let i=0; i<30; i++) createParticle(player.x, player.y, Math.random()*Math.PI*2, '#ff4400');
         document.getElementById('crashReason').innerText = reason;
         setTimeout(() => showMenu('crashMenu'), 1000);
+    }
+
+    function finishRace() {
+        gameState = 'finished';
+        // Calculate Rank
+        let rank = 1;
+        bots.forEach(b => { if(b.finished) rank++; });
+        
+        let reward = 0;
+        if(rank === 1) reward = 300;
+        else if(rank === 2) reward = 150;
+        else if(rank === 3) reward = 50;
+        else reward = 10;
+
+        stats.points += reward;
+        localStorage.setItem('rr_points', stats.points);
+        updateUI();
+
+        let suffix = (rank===1)?"st":(rank===2)?"nd":(rank===3)?"rd":"th";
+        document.getElementById('finalRankText').innerText = rank + suffix + " Place";
+        document.getElementById('rewardPoints').innerText = reward;
+        showMenu('finishMenu');
     }
 
     function respawnPlayer() {
@@ -399,20 +483,19 @@
             ctx.beginPath(); ctx.arc(p.x, p.y, p.radius + 300, 0, Math.PI*2); ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 1; ctx.stroke();
             ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2); ctx.fillStyle = p.color; ctx.fill();
             if(p.isFinish) { ctx.fillStyle = 'white'; ctx.font = "30px Arial"; ctx.fillText("FINISH", p.x-50, p.y); }
+            if(gameMode==='race' && track.indexOf(p) === player.currentPlanetIndex) { ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 5; ctx.stroke(); }
         });
 
         walls.forEach(w => {
             ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(w.angle);
             if(w.isUser) { ctx.strokeStyle = '#00ff00'; ctx.fillStyle = 'rgba(0,255,0,0.3)'; }
             else { ctx.strokeStyle = '#fff'; ctx.fillStyle = '#555'; }
-            ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h);
-            ctx.lineWidth = 2; ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h);
+            ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h); ctx.lineWidth = 2; ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h);
             ctx.restore();
         });
 
         hazards.forEach(h => {
             if(h.type === 'blackhole') { ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(Date.now() / 200); ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2); ctx.fillStyle = 'black'; ctx.fill(); ctx.strokeStyle = 'purple'; ctx.lineWidth = 4; ctx.stroke(); ctx.restore(); }
-            else if (h.type === 'wormhole') { ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(-Date.now() / 100); ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI*2); ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore(); }
             else { ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fillStyle = '#666'; ctx.fill(); }
         });
 
@@ -420,23 +503,23 @@
 
         for (let id in opponents) { if(id !== socket.id) drawRocket(opponents[id].x, opponents[id].y, opponents[id].angle, '#ff4444', false); }
         
+        bots.forEach(b => {
+            drawRocket(b.x, b.y, b.angle, b.color, true);
+            ctx.fillStyle = "white"; ctx.font = "12px Arial"; ctx.fillText(b.name, b.x-20, b.y-30);
+        });
+
         if(!player.dead) {
             if(slingshotCharge > 1.2) { ctx.beginPath(); ctx.arc(player.x, player.y, 30, 0, Math.PI*2); ctx.fillStyle = `rgba(0, 255, 255, ${slingshotCharge * 0.2})`; ctx.fill(); }
             let color = keys.turbo ? '#00ffff' : '#00d2ff';
             drawRocket(player.x, player.y, player.angle, color, keys.up || keys.turbo);
             
             if(currentBuildTool > 0) {
-                let w = 100, h = 20;
-                if(currentBuildTool === 2) { w = 400; h = 40; }
-                if(currentBuildTool === 3) { w = 50; h = 50; }
-                ctx.save();
-                const worldX = camera.x + mouseX; const worldY = camera.y + mouseY;
+                let w = 100, h = 20; if(currentBuildTool === 2) { w = 400; h = 40; } if(currentBuildTool === 3) { w = 50; h = 50; }
+                ctx.save(); const worldX = camera.x + mouseX; const worldY = camera.y + mouseY;
                 ctx.translate(worldX, worldY); ctx.rotate(player.angle);
-                ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2; ctx.strokeRect(-w/2, -h/2, w, h);
-                ctx.restore();
+                ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2; ctx.strokeRect(-w/2, -h/2, w, h); ctx.restore();
             }
         }
-
         ctx.restore();
     }
 
@@ -452,18 +535,10 @@
     function createRoom(type) { socket.emit('createRoom', type); }
     function joinRoom() { socket.emit('joinRoom', document.getElementById('roomCodeInput').value.toUpperCase()); }
     function requestStart() { if(roomCode && isHost) socket.emit('startGame', roomCode); }
-    
-    // NEW MATCHMAKING CALL
-    function findOpenWorldGame() {
-        socket.emit('findOpenWorld');
-    }
+    function findOpenWorldGame() { socket.emit('findOpenWorld'); }
 
     // --- EVENTS ---
-    socket.on('matchFound', (code) => {
-        // Automatically join the room found by server
-        socket.emit('joinRoom', code);
-    });
-
+    socket.on('matchFound', (code) => { socket.emit('joinRoom', code); });
     socket.on('roomCreated', (data) => { roomCode = data.code; isHost = true; gameMode = data.type; document.getElementById('lobbyCode').innerText = data.code; showMenu(gameMode === 'openworld' ? null : 'lobbyMenu'); setHudVisible(true); if(gameMode === 'openworld') { loadedObjectIds.clear(); gameState = 'openworld'; addChatMessage("System", "Generating Open World...", false); respawnPlayer(); } });
     socket.on('roomJoined', (data) => { roomCode = data.code; isHost = false; gameMode = data.type; document.getElementById('lobbyCode').innerText = data.code; showMenu(gameMode === 'openworld' ? null : 'lobbyMenu'); setHudVisible(true); if(data.trackData) { track = data.trackData.planets; hazards = data.trackData.hazards || []; spawnPoints = data.trackData.spawnPoints || []; walls = data.trackData.walls || []; } else { loadedObjectIds.clear(); track = []; hazards = []; spawnPoints = []; walls = []; } if(gameMode === 'openworld') { gameState = 'openworld'; respawnPlayer(); } addChatMessage("System", "Joined Room: " + roomCode, false); });
     socket.on('updateLobby', (players) => { document.getElementById('playerList').innerHTML = Object.keys(players).map(id => `<div>Pilot ${id.substr(0,4)}</div>`).join(''); });
@@ -474,8 +549,9 @@
     socket.on('objectPlaced', (obj) => { walls.push(obj); });
 
     function setupSinglePlayer() {
-        roomCode = null; gameMode = 'race'; track = []; hazards = []; spawnPoints = []; walls = []; loadedObjectIds.clear();
+        roomCode = null; gameMode = 'race'; track = []; hazards = []; spawnPoints = []; walls = []; bots = []; loadedObjectIds.clear();
         let startX = 0, startY = 0; spawnPoints.push({x: 0, y: 0, radius: 40});
+        // Generate Corridor
         let pathPoints = [{x:0, y:0}];
         for (let i = 0; i < 20; i++) {
             startX += (Math.random() - 0.5) * 1500; startY -= (1000 + Math.random() * 500); 
@@ -488,6 +564,14 @@
             walls.push({ x: mx + Math.cos(angle - Math.PI/2) * (width/2), y: my + Math.sin(angle - Math.PI/2) * (width/2), w: dist+200, h: 50, angle: angle });
             walls.push({ x: mx + Math.cos(angle + Math.PI/2) * (width/2), y: my + Math.sin(angle + Math.PI/2) * (width/2), w: dist+200, h: 50, angle: angle });
         }
+        
+        // Spawn Bots
+        bots = [
+            { name: "Rusty", color: "#00ff00", x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false },
+            { name: "Apex", color: "#ff0000", x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false },
+            { name: "Shadow", color: "#aa00ff", x: 0, y: 0, vx: 0, vy: 0, angle: 0, currentPlanetIndex: 0, finished: false }
+        ];
+
         respawnPlayer(); gameState = 'playing'; showMenu(null); setHudVisible(true); addChatMessage("System", "Single Player Mode", false);
     }
 </script>
