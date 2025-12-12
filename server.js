@@ -9,63 +9,125 @@ app.use(express.static(path.join(__dirname, 'public')));
 const rooms = {};
 const CHUNK_SIZE = 2000; 
 
+// Helper: Generate Linear Race Track with Side Barriers
 function generateRaceTrack() {
     const items = { planets: [], hazards: [], spawnPoints: [], walls: [] };
-    let startX = 0;
-    let startY = 0;
     
+    // Spawn is always safe at 0,0
     items.spawnPoints.push({ x: 0, y: 0, radius: 50 });
-    const pathPoints = [{ x: 0, y: 0 }];
 
-    for (let i = 0; i < 20; i++) {
-        startX += (Math.random() - 0.5) * 1500; 
-        startY -= (1000 + Math.random() * 500); 
+    let currentX = 0;
+    let currentY = 0;
+    const trackWidth = 1000; // Width of the safe corridor
 
+    // Generate Path Nodes
+    for (let i = 0; i < 25; i++) {
+        // Calculate next point (move generally UP and slightly Random X)
+        // First point is further away to give spawn space
+        const moveY = (i === 0) ? -1200 : -(800 + Math.random() * 400); 
+        const moveX = (Math.random() - 0.5) * 1500;
+
+        const nextX = currentX + moveX;
+        const nextY = currentY + moveY;
+
+        // Add Planet at the center of the path node
         items.planets.push({
             id: `p_${i}`,
-            x: startX, y: startY,
+            x: nextX, 
+            y: nextY,
             radius: 60 + Math.random() * 60,
             color: `hsl(${Math.random() * 360}, 70%, 50%)`,
-            isFinish: i === 19
+            isFinish: i === 24 // Last planet is finish
         });
-        pathPoints.push({ x: startX, y: startY });
+
+        // --- WALL GENERATION (The Tunnel) ---
+        // Calculate the angle between current point and next point
+        const angle = Math.atan2(nextY - currentY, nextX - currentX);
+        const dist = Math.hypot(nextX - currentX, nextY - currentY);
+        
+        // Midpoint between current and next
+        const midX = (currentX + nextX) / 2;
+        const midY = (currentY + nextY) / 2;
+
+        // Left Wall Position (Perpendicular -90 deg)
+        // Cos/Sin math ensures walls stay parallel to the path
+        items.walls.push({
+            id: `w_l_${i}`,
+            x: midX + Math.cos(angle - Math.PI/2) * trackWidth,
+            y: midY + Math.sin(angle - Math.PI/2) * trackWidth,
+            w: dist + 100, // Length matches distance
+            h: 50,         // Thickness
+            angle: angle   // Rotate to match path direction
+        });
+
+        // Right Wall Position (Perpendicular +90 deg)
+        items.walls.push({
+            id: `w_r_${i}`,
+            x: midX + Math.cos(angle + Math.PI/2) * trackWidth,
+            y: midY + Math.sin(angle + Math.PI/2) * trackWidth,
+            w: dist + 100,
+            h: 50,
+            angle: angle
+        });
+
+        // Add occasional hazards strictly in the middle of the path
+        if(i > 2 && i < 24 && Math.random() < 0.4) {
+            items.hazards.push({
+                id: `h_${i}`,
+                type: 'meteor',
+                x: midX,
+                y: midY,
+                radius: 40,
+                vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2
+            });
+        }
+
+        // Update current for next loop
+        currentX = nextX;
+        currentY = nextY;
     }
 
-    for(let i = 0; i < pathPoints.length - 1; i++) {
-        const p1 = pathPoints[i];
-        const p2 = pathPoints[i+1];
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const dist = Math.hypot(dx, dy);
-        const angle = Math.atan2(dy, dx);
-        const mx = (p1.x + p2.x) / 2;
-        const my = (p1.y + p2.y) / 2;
-        const width = 1400; 
-
-        items.walls.push({ id: `w_l_${i}`, x: mx + Math.cos(angle - Math.PI/2) * (width/2), y: my + Math.sin(angle - Math.PI/2) * (width/2), w: dist + 200, h: 50, angle: angle });
-        items.walls.push({ id: `w_r_${i}`, x: mx + Math.cos(angle + Math.PI/2) * (width/2), y: my + Math.sin(angle + Math.PI/2) * (width/2), w: dist + 200, h: 50, angle: angle });
-    }
     return items;
 }
 
+// Helper: Chunk Generation (Open World)
 function generateChunkData(cx, cy) {
     const items = { planets: [], hazards: [], spawnPoints: [], walls: [] };
     const offsetX = cx * CHUNK_SIZE;
     const offsetY = cy * CHUNK_SIZE;
 
     if ((cx === 0 && cy === 0) || Math.random() < 0.3) {
-        items.spawnPoints.push({ id: `sp_${cx}_${cy}`, x: offsetX + Math.random() * CHUNK_SIZE, y: offsetY + Math.random() * CHUNK_SIZE, radius: 40 });
+        items.spawnPoints.push({
+            id: `sp_${cx}_${cy}`,
+            x: offsetX + Math.random() * CHUNK_SIZE,
+            y: offsetY + Math.random() * CHUNK_SIZE,
+            radius: 40
+        });
     }
 
     const planetCount = Math.floor(Math.random() * 2) + 1;
     for(let i=0; i<planetCount; i++) {
-        items.planets.push({ id: `chunk_${cx}_${cy}_p_${i}`, x: offsetX + Math.random() * CHUNK_SIZE, y: offsetY + Math.random() * CHUNK_SIZE, radius: 60 + Math.random() * 80, color: `hsl(${Math.random() * 360}, 60%, 45%)`, isFinish: false });
+        items.planets.push({
+            id: `chunk_${cx}_${cy}_p_${i}`,
+            x: offsetX + Math.random() * CHUNK_SIZE,
+            y: offsetY + Math.random() * CHUNK_SIZE,
+            radius: 60 + Math.random() * 80,
+            color: `hsl(${Math.random() * 360}, 60%, 45%)`,
+            isFinish: false
+        });
     }
 
-    // Procedural Walls
+    // Open World Walls are random obstacles
     const wallCount = Math.floor(Math.random() * 3);
     for(let i=0; i<wallCount; i++) {
-        items.walls.push({ id: `chunk_${cx}_${cy}_w_${i}`, x: offsetX + Math.random() * CHUNK_SIZE, y: offsetY + Math.random() * CHUNK_SIZE, w: 300 + Math.random() * 400, h: 30 + Math.random() * 50, angle: Math.random() * Math.PI });
+        items.walls.push({
+            id: `chunk_${cx}_${cy}_w_${i}`,
+            x: offsetX + Math.random() * CHUNK_SIZE,
+            y: offsetY + Math.random() * CHUNK_SIZE,
+            w: 300 + Math.random() * 400,
+            h: 30 + Math.random() * 50,
+            angle: Math.random() * Math.PI
+        });
     }
 
     const hazardCount = Math.floor(Math.random() * 3); 
@@ -75,8 +137,17 @@ function generateChunkData(cx, cy) {
         if(typeRoll > 0.8) type = 'blackhole';
         else if(typeRoll > 0.95) type = 'wormhole';
 
-        items.hazards.push({ id: `chunk_${cx}_${cy}_h_${i}`, type: type, x: offsetX + Math.random() * CHUNK_SIZE, y: offsetY + Math.random() * CHUNK_SIZE, radius: type === 'meteor' ? 20 + Math.random() * 30 : 0, vx: type === 'meteor' ? (Math.random()-0.5) * 6 : 0, vy: type === 'meteor' ? (Math.random()-0.5) * 6 : 0 });
+        items.hazards.push({
+            id: `chunk_${cx}_${cy}_h_${i}`,
+            type: type,
+            x: offsetX + Math.random() * CHUNK_SIZE,
+            y: offsetY + Math.random() * CHUNK_SIZE,
+            radius: type === 'meteor' ? 20 + Math.random() * 30 : 0,
+            vx: type === 'meteor' ? (Math.random()-0.5) * 6 : 0,
+            vy: type === 'meteor' ? (Math.random()-0.5) * 6 : 0
+        });
     }
+
     return items;
 }
 
@@ -89,14 +160,47 @@ function makeId(length) {
 
 io.on('connection', (socket) => {
     
+    // --- NEW: MATCHMAKING LOGIC ---
+    socket.on('findOpenWorld', () => {
+        // Look for an existing Open World room that isn't full
+        const foundRoomId = Object.keys(rooms).find(id => {
+            const r = rooms[id];
+            return r.type === 'openworld' && Object.keys(r.players).length < 20;
+        });
+
+        if (foundRoomId) {
+            // Join existing
+            socket.emit('matchFound', foundRoomId);
+        } else {
+            // Create new
+            const newCode = makeId(4);
+            rooms[newCode] = {
+                players: {},
+                chunks: {},
+                trackData: null,
+                type: 'openworld'
+            };
+            socket.emit('matchFound', newCode);
+        }
+    });
+
     socket.on('createRoom', (type) => {
         const roomCode = makeId(4);
         const isOpenWorld = (type === 'openworld');
-        rooms[roomCode] = { players: {}, chunks: {}, trackData: isOpenWorld ? null : generateRaceTrack(), type: type || 'race' };
+        
+        rooms[roomCode] = {
+            players: {},
+            chunks: {}, 
+            trackData: isOpenWorld ? null : generateRaceTrack(),
+            type: type || 'race'
+        };
+        
         socket.join(roomCode);
         rooms[roomCode].players[socket.id] = { id: socket.id, x: 0, y: 0, angle: 0 };
+        
         socket.emit('roomCreated', { code: roomCode, type: rooms[roomCode].type });
         io.to(roomCode).emit('updateLobby', rooms[roomCode].players);
+        
         if(!isOpenWorld) socket.emit('gameStart', rooms[roomCode].trackData);
     });
 
@@ -104,7 +208,12 @@ io.on('connection', (socket) => {
         if (rooms[roomCode]) {
             socket.join(roomCode);
             rooms[roomCode].players[socket.id] = { id: socket.id, x: 0, y: 0, angle: 0 };
-            socket.emit('roomJoined', { code: roomCode, type: rooms[roomCode].type, trackData: rooms[roomCode].trackData });
+            
+            socket.emit('roomJoined', { 
+                code: roomCode, 
+                type: rooms[roomCode].type,
+                trackData: rooms[roomCode].trackData 
+            });
             io.to(roomCode).emit('updateLobby', rooms[roomCode].players);
             if(rooms[roomCode].type === 'race') socket.emit('gameStart', rooms[roomCode].trackData);
         } else {
@@ -121,6 +230,7 @@ io.on('connection', (socket) => {
     socket.on('playerMove', (data) => {
         const room = rooms[data.room];
         if (!room) return;
+        
         if(room.players[socket.id]) {
             const p = room.players[socket.id];
             p.x = data.x;
@@ -145,39 +255,25 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- PLAYER BUILDING LOGIC ---
     socket.on('placeObject', (data) => {
         const room = rooms[data.room];
         if(!room || room.type !== 'openworld') return;
-
-        // Determine which chunk this object belongs to
         const chunkX = Math.floor(data.x / CHUNK_SIZE);
         const chunkY = Math.floor(data.y / CHUNK_SIZE);
         const chunkKey = `${chunkX},${chunkY}`;
-
-        // Ensure chunk exists in memory
-        if(!room.chunks[chunkKey]) {
-            room.chunks[chunkKey] = generateChunkData(chunkX, chunkY);
-        }
+        if(!room.chunks[chunkKey]) room.chunks[chunkKey] = generateChunkData(chunkX, chunkY);
 
         const newWall = {
             id: `usr_${makeId(6)}`,
-            x: data.x,
-            y: data.y,
-            w: data.w,
-            h: data.h,
-            angle: data.angle,
-            isUser: true // Mark as user generated
+            x: data.x, y: data.y, w: data.w, h: data.h, angle: data.angle, isUser: true
         };
-
-        // Save to server
         room.chunks[chunkKey].walls.push(newWall);
-
-        // Broadcast to everyone
         io.to(data.room).emit('objectPlaced', newWall);
     });
 
-    socket.on('chatMessage', (data) => { io.to(data.room).emit('chatMessage', { id: socket.id, msg: data.msg }); });
+    socket.on('chatMessage', (data) => {
+        io.to(data.room).emit('chatMessage', { id: socket.id, msg: data.msg });
+    });
 });
 
 const PORT = process.env.PORT || 3000;
