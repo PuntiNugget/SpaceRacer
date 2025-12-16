@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Hyper Impulse</title>
+    <title>Stellar Drift: UNLIMITED</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; }
         canvas { display: block; }
@@ -23,6 +23,7 @@
         .hud-stats { position: absolute; top: 20px; left: 20px; font-size: 18px; font-weight: bold; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none; }
         .coord-box { color: #00ff00; font-family: monospace; margin-top: 10px; }
         .charge-box { margin-top: 10px; color: #00ffff; display: none; font-size: 24px; text-shadow: 0 0 10px cyan; font-style: italic; }
+        .speed-box { margin-top: 10px; color: #ff0055; font-size: 20px; font-weight: 900; }
 
         #chatContainer { position: absolute; bottom: 80px; left: 20px; width: 300px; pointer-events: auto; z-index: 100; display: none; }
         #chatMessages { height: 150px; overflow-y: auto; background: rgba(0,0,0,0.6); border: 1px solid #444; padding: 10px; list-style: none; margin: 0; color: #ddd; font-size: 13px; }
@@ -54,6 +55,7 @@
         <div>POINTS: <span id="scoreDisplay" style="color:#00d2ff">0</span></div>
         <div id="planetCountDiv">PLANETS: <span id="planetCounter" style="color:#ffee00">0/0</span></div>
         <div class="coord-box">POS: <span id="coordDisplay">0, 0</span></div>
+        <div class="speed-box">VEL: <span id="speedDisplay">0</span></div>
         <div id="chargeUI" class="charge-box">IMPULSE CHARGE: <span id="chargeVal">0x</span></div>
         <div style="margin-top:10px;">RANK: <span id="rankDisplay">1/4</span></div>
     </div>
@@ -76,7 +78,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Hyper Impulse Update</p>
+        <p>Unlimited Impulse Update</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Race Multiplayer</button>
         <br><button class="gold" onclick="findOpenWorldGame()">OPEN WORLD ONLINE</button><br>
@@ -224,6 +226,8 @@
         document.getElementById('lvlSpeed').innerText = stats.speedLvl;
         document.getElementById('lvlHandle').innerText = stats.handleLvl;
         document.getElementById('coordDisplay').innerText = `${Math.round(player.x)}, ${Math.round(player.y)}`;
+        let speed = Math.hypot(player.vx, player.vy);
+        document.getElementById('speedDisplay').innerText = Math.round(speed * 10);
         
         if(player.slingshotCharge >= 1.0) {
             document.getElementById('chargeUI').style.display = 'block';
@@ -298,11 +302,13 @@
         let shakeX = (Math.random() - 0.5) * screenShake * 4;
         let shakeY = (Math.random() - 0.5) * screenShake * 4;
         
-        // 1. Zoom Logic (Dynamic FOV)
+        // 1. Zoom Logic (Dynamic FOV - NO LIMITS)
         let speed = Math.hypot(player.vx, player.vy);
-        if(player.boostTimer > 0) targetZoom = 0.6; // Massive FOV during boost
-        else if(speed > 15) targetZoom = 0.75;
-        else targetZoom = 1.0;
+        
+        // Calculate target zoom based on speed. 
+        // Normal speed is ~10. Extreme speed is 100+.
+        // Formula: 1.0 down to 0.2
+        targetZoom = Math.max(0.2, 1.0 - (speed * 0.005));
         
         cameraZoom += (targetZoom - cameraZoom) * 0.05;
 
@@ -319,20 +325,13 @@
         // Calculate the visible world bounds
         let visibleW = width / cameraZoom;
         let visibleH = height / cameraZoom;
-        let padding = 150; // Keep ship 150px from edge
+        let padding = 150; 
 
-        // Camera center is usually (camera.x + width/2, camera.y + height/2)
-        // We need to shift camera.x so that player.x is inside [camera.x + padding, camera.x + width - padding] (roughly)
-        // Actually, since we draw by translating -camera.x, camera.x represents the Top-Left corner of the viewport (unscaled).
-        
-        // Let's ensure player doesn't leave the box:
-        // Left Edge
+        // Clamp Left/Right
         if (player.x < camera.x + padding) camera.x = player.x - padding;
-        // Right Edge
         if (player.x > camera.x + visibleW - padding) camera.x = player.x - visibleW + padding;
-        // Top Edge
+        // Clamp Top/Bottom
         if (player.y < camera.y + padding) camera.y = player.y - padding;
-        // Bottom Edge
         if (player.y > camera.y + visibleH - padding) camera.y = player.y - visibleH + padding;
 
         // Add shake
@@ -424,22 +423,26 @@
                 if(speed > 5) {
                     if(!obj.slingshotCharge) obj.slingshotCharge = 0.0;
                     obj.slingshotCharge += 0.03;
-                    if(obj.slingshotCharge > 10.0) obj.slingshotCharge = 10.0;
+                    // --- LIMITS REMOVED ---
+                    // No cap on charge. It grows infinitely.
                 }
             }
         });
 
-        // --- IMPULSE LAUNCH LOGIC (Explosive Exit) ---
+        // --- UNLIMITED IMPULSE LAUNCH LOGIC ---
         if(!inGravity && obj.orbitingPlanet) {
             // We just left gravity. Check charge.
             if(obj.slingshotCharge >= 1.0) {
-                let multiplier = 1.0 + (obj.slingshotCharge * 0.6); // 2x charge = 2.2x speed boost
+                
+                // MULTIPLIER UNLEASHED
+                // 1.0 charge = +100% speed. 10.0 charge = +1000% speed.
+                let multiplier = 1.0 + obj.slingshotCharge; 
                 
                 // INSTANT IMPULSE
                 obj.vx *= multiplier;
                 obj.vy *= multiplier;
                 
-                // Set "Frictionless" timer (visual only mostly)
+                // Set "Frictionless" timer
                 let wholeSecs = Math.floor(obj.slingshotCharge);
                 obj.boostTimer = wholeSecs * 60; 
 
