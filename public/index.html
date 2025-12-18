@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Mastery Update</title>
+    <title>Stellar Drift: Slingshot Update</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; user-select: none; }
         canvas { display: block; }
@@ -37,6 +37,23 @@
 
         /* HUD */
         .hud-stats { position: absolute; top: 20px; left: 20px; font-weight: bold; text-shadow: 0 2px 4px black; pointer-events: none; }
+        .fps-counter { position: absolute; top: 10px; right: 10px; font-weight: bold; color: #00ff00; font-family: monospace; font-size: 12px; z-index: 100; pointer-events:none; }
+        
+        /* SHIP SWITCHER (Open World Only) */
+        #shipSwitcher {
+            position: absolute; top: 50%; right: 20px; transform: translateY(-50%);
+            display: flex; flex-direction: column; gap: 10px;
+            pointer-events: auto; display: none;
+        }
+        .switch-btn {
+            width: 50px; height: 50px; background: rgba(0,0,0,0.8); border: 1px solid #444;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px; color: #555; cursor: pointer; border-radius: 8px;
+            transition: 0.2s; position: relative;
+        }
+        .switch-btn.active { border-color: #00d2ff; background: rgba(0, 210, 255, 0.1); color: white; box-shadow: 0 0 10px rgba(0,210,255,0.5); transform: scale(1.1); }
+        .switch-btn .key-hint { position: absolute; top: 2px; left: 4px; font-size: 8px; color: #aaa; }
+        
         .ability-row { margin-top: 5px; font-size: 14px; color: #aaa; }
         .ready { color: #00ff00; text-shadow: 0 0 5px #00ff00; }
         .cooldown { color: orange; }
@@ -73,11 +90,36 @@
         .loot-box { width: 100px; height: 100px; background: gold; margin-bottom: 20px; box-shadow: 0 0 50px gold; animation: shake 0.5s infinite; }
         @keyframes shake { 0% { transform: rotate(0deg); } 25% { transform: rotate(5deg); } 75% { transform: rotate(-5deg); } 100% { transform: rotate(0deg); } }
         .loot-msg { font-size: 24px; color: #ffd700; margin-bottom: 20px; font-weight: bold; }
+
+        /* DEV NOTIFICATION */
+        #devNotif {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9); border: 2px solid #00ff00; color: #00ff00;
+            padding: 30px; font-size: 24px; font-weight: bold; z-index: 300;
+            box-shadow: 0 0 50px #00ff00; display: none; text-align: center;
+        }
     </style>
 </head>
 <body>
 
 <canvas id="gameCanvas"></canvas>
+<div id="fpsDisplay" class="fps-counter">FPS: 60</div>
+<div id="devNotif">DEV MODE ACTIVATED<br><span style="font-size:14px; color:white;">Unlimited Power Granted</span></div>
+
+<div id="shipSwitcher">
+    <div class="switch-btn" id="switch-nitro" onclick="switchShipInGame('nitro')">
+        <span class="key-hint">1</span>N
+    </div>
+    <div class="switch-btn" id="switch-shadow" onclick="switchShipInGame('shadow')">
+        <span class="key-hint">2</span>S
+    </div>
+    <div class="switch-btn" id="switch-vision" onclick="switchShipInGame('vision')">
+        <span class="key-hint">3</span>V
+    </div>
+    <div class="switch-btn" id="switch-dasher" onclick="switchShipInGame('dasher')">
+        <span class="key-hint">4</span>D
+    </div>
+</div>
 
 <div id="bigMapOverlay">
     <div id="bigMapContainer">
@@ -133,7 +175,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Mastery Update (Hard Mode)</p>
+        <p>Mastery & Slingshot Update</p>
         
         <button onclick="setupRace()">Single Player Race</button>
         <button class="gold" onclick="setupOpenWorld()">Open World Online</button>
@@ -194,6 +236,8 @@
     const mmCtx = mmCanvas.getContext('2d');
     const bmCanvas = document.getElementById('bigMapCanvas');
     const bmCtx = bmCanvas.getContext('2d');
+    const fpsEl = document.getElementById('fpsDisplay');
+    const shipSwitcherEl = document.getElementById('shipSwitcher');
     
     let socket;
     try { socket = io(); } catch(e) { console.log("Offline Mode"); }
@@ -224,14 +268,18 @@
         points: 5000,
         mergeTokens: 0,
         slotRUnlocked: false,
-        cards: { nitro: 100, shadow: 0, vision: 0, dasher: 0 }, // Start with Nitro Unlocked
+        cards: { nitro: 100, shadow: 0, vision: 0, dasher: 0 },
         slots: { q: 'nitro', r: null }
     };
     function saveUser() { localStorage.setItem('drift_user_v5', JSON.stringify(user)); }
 
+    // --- KONAMI CODE LOGIC ---
+    const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a', 'Enter'];
+    let konamiIndex = 0;
+
     // --- GAME VARIABLES ---
     let gameState = 'menu';
-    let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false, wormholeDelay:0 };
+    let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96 };
     let camera = { x:0, y:0 };
     let bots = [];
     let walls = [], particles = [], blackHoles = [], meteors = [], wormholes = [];
@@ -241,10 +289,26 @@
     let keys = { w:false, a:false, s:false, d:false };
     let buildTool = 0;
     let mouse = { x:0, y:0 };
+    let lastTime = 0;
 
     // --- INPUTS ---
     window.addEventListener('keydown', e => {
+        // KONAMI CHECK
+        if(KONAMI[konamiIndex] === e.key) {
+            konamiIndex++;
+            if(konamiIndex === KONAMI.length) { activateDevMode(); konamiIndex = 0; }
+        } else { konamiIndex = 0; }
+
         if(document.activeElement.tagName === 'INPUT') return;
+        
+        // Ship Switcher Hotkeys (1-4)
+        if(gameState === 'openworld') {
+            if(e.key === '1') switchShipInGame('nitro');
+            if(e.key === '2') switchShipInGame('shadow');
+            if(e.key === '3') switchShipInGame('vision');
+            if(e.key === '4') switchShipInGame('dasher');
+        }
+
         if(e.key==='w'||e.key==='ArrowUp') keys.w=true;
         if(e.key==='s'||e.key==='ArrowDown') keys.s=true;
         if(e.key==='a'||e.key==='ArrowLeft') keys.a=true;
@@ -299,8 +363,31 @@
         ul.scrollTop = ul.scrollHeight;
     }
 
+    function activateDevMode() {
+        user.points = 9999999;
+        user.mergeTokens = 9999;
+        user.slotRUnlocked = true;
+        for(let k in user.cards) user.cards[k] = 450;
+        saveUser();
+        let notif = document.getElementById('devNotif');
+        notif.style.display = 'block';
+        setTimeout(() => { notif.style.display = 'none'; }, 3000);
+        if(document.getElementById('hangarMenu').classList.contains('visible')) renderHangar();
+        updateShipSwitcherUI();
+    }
+
     // --- GAME LOOP ---
-    function loop() {
+    function loop(timestamp) {
+        if(!lastTime) lastTime = timestamp;
+        let delta = timestamp - lastTime;
+        lastTime = timestamp;
+        
+        if(delta > 0) {
+            let fps = Math.round(1000/delta);
+            fpsEl.innerText = "FPS: " + fps;
+            fpsEl.style.color = fps < 30 ? 'red' : '#00ff00';
+        }
+
         if(gameState !== 'menu') {
             updatePhysics();
             if(gameState === 'race') updateRaceLogic();
@@ -321,7 +408,9 @@
         if(player.finished) return;
         let ents = [player, ...bots];
         ents.forEach(ent => {
-            ent.vx *= 0.96; ent.vy *= 0.96;
+            // Apply current friction (affected by gravity wells)
+            let fric = ent === player ? player.friction : 0.96;
+            ent.vx *= fric; ent.vy *= fric;
             ent.x += ent.vx; ent.y += ent.vy;
             if(ent.wormholeDelay > 0) ent.wormholeDelay--;
             let isPhasing = ent === player && (player.active.q > 0 && SHIPS[user.slots.q]?.name === 'Shadow' || player.active.r > 0 && SHIPS[user.slots.r]?.name === 'Shadow');
@@ -358,16 +447,39 @@
 
     function updateHazards() {
         if(gameState !== 'openworld') return;
+        
+        // SLINGSHOT PHYSICS UPDATE
+        player.friction = 0.96; // Reset friction
+        
         blackHoles.forEach(bh => {
-            let dist = Math.hypot(bh.x - player.x, bh.y - player.y);
-            if(dist < bh.r + 500) {
-                let pull = 1.5 * (1 - dist/(bh.r+500));
-                let ang = Math.atan2(bh.y - player.y, bh.x - player.x);
-                player.vx += Math.cos(ang) * pull; player.vy += Math.sin(ang) * pull;
-                spawnParticle(player.x, player.y, 'purple', 1);
+            let dx = bh.x - player.x;
+            let dy = bh.y - player.y;
+            let dist = Math.hypot(dx, dy);
+            
+            // Influence Radius (Gravity Well)
+            if(dist < bh.r + 800) {
+                // Low friction mode for slingshotting
+                player.friction = 0.99; 
+                
+                // Inverse Square Law simulation (Exponential Pull)
+                // Normalize force based on distance, but clamp it so it doesn't infinite
+                let gravityStrength = 3000 / (dist * 0.8); 
+                
+                let angle = Math.atan2(dy, dx);
+                player.vx += Math.cos(angle) * (gravityStrength / 100);
+                player.vy += Math.sin(angle) * (gravityStrength / 100);
+                
+                // Visuals
+                spawnParticle(player.x, player.y, 'rgba(100,0,255,0.5)', 1);
             }
-            if(dist < 30) { player.x = 0; player.y = 0; player.vx = 0; player.vy = 0; addChat("System", "Crushed by gravity.", false); }
+            
+            // Event Horizon (Death)
+            if(dist < bh.r * 0.6) { 
+                player.x = 0; player.y = 0; player.vx = 0; player.vy = 0; 
+                addChat("System", "Crushed by gravity.", false); 
+            }
         });
+
         meteors.forEach(m => {
             m.x += m.vx; m.y += m.vy; m.angle += m.spin;
             if(m.x > 3000) m.x = -3000; if(m.x < -3000) m.x = 3000;
@@ -391,7 +503,6 @@
         if(!shipKey || player.cooldowns[slot] > 0) return;
         
         let ship = SHIPS[shipKey];
-        // MASTERY CHECK: If cards >= 450, 20% reduced cooldown
         let cdr = user.cards[shipKey] >= REQ_MAX ? 0.8 : 1.0;
 
         player.cooldowns[slot] = ship.cd * cdr; 
@@ -401,6 +512,40 @@
         if(ship.name === "Vision") { bots.forEach(b=>{ if(Math.hypot(b.x-player.x, b.y-player.y)<800){ b.vx=0; b.vy=0; b.angle+=Math.PI; }}); spawnParticle(player.x, player.y, 'magenta', 30); }
     }
 
+    // --- SHIP SWITCHER LOGIC ---
+    function switchShipInGame(key) {
+        if(user.cards[key] < REQ_UNLOCK) {
+            addChat("System", "Ship Locked!", false);
+            return;
+        }
+        user.slots.q = key;
+        // Keep Slot R as is
+        saveUser();
+        updateShipSwitcherUI();
+        addChat("System", "Switched to " + SHIPS[key].name, true);
+        spawnParticle(player.x, player.y, '#ffffff', 20); // Morph effect
+    }
+
+    function updateShipSwitcherUI() {
+        document.querySelectorAll('.switch-btn').forEach(btn => btn.classList.remove('active'));
+        let current = user.slots.q;
+        if(current) {
+            let el = document.getElementById('switch-'+current);
+            if(el) el.classList.add('active');
+        }
+        // Gray out locked ships
+        for(let k in SHIPS) {
+            let el = document.getElementById('switch-'+k);
+            if(user.cards[k] < REQ_UNLOCK) {
+                el.style.opacity = '0.3';
+                el.style.borderColor = 'red';
+            } else {
+                el.style.opacity = '1';
+                el.style.borderColor = '#444';
+            }
+        }
+    }
+
     function setupRace() {
         gameState = 'race';
         showMenu(null);
@@ -408,8 +553,9 @@
         document.getElementById('raceInfo').style.display='block';
         document.getElementById('buildToolbar').style.display='none';
         document.getElementById('chatContainer').style.display='none';
+        shipSwitcherEl.style.display = 'none'; // Hide in Race
         track = [{x:0,y:0}, {x:2000,y:-500}, {x:2000,y:2000}, {x:-500,y:2000}];
-        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:1, finished:false, wormholeDelay:0 };
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:1, finished:false, wormholeDelay:0, friction:0.96 };
         bots = [
             { x:0, y:100, vx:0, vy:0, angle:0, speed:0.95, nextCheck:1, lap:1, color:'#ff4444' },
             { x:0, y:-100, vx:0, vy:0, angle:0, speed:0.92, nextCheck:1, lap:1, color:'#44ff44' },
@@ -420,41 +566,6 @@
         waypoint = track[1];
     }
 
-    function updateRaceLogic() {
-        bots.forEach(b => {
-            let target = track[b.nextCheck % track.length];
-            let angle = Math.atan2(target.y - b.y, target.x - b.x);
-            let diff = angle - b.angle;
-            while(diff < -Math.PI) diff += Math.PI*2; while(diff > Math.PI) diff -= Math.PI*2;
-            b.angle += diff * 0.05;
-            b.vx += Math.cos(b.angle) * 0.45 * b.speed;
-            b.vy += Math.sin(b.angle) * 0.45 * b.speed;
-            if(Math.hypot(target.x-b.x, target.y-b.y) < 300) { b.nextCheck++; if((b.nextCheck-1)%track.length === 0) b.lap++; }
-        });
-        let target = track[player.nextCheck % track.length];
-        waypoint = target;
-        if(Math.hypot(target.x - player.x, target.y - player.y) < 300) {
-            player.nextCheck++;
-            if((player.nextCheck-1)%track.length === 0) {
-                player.lap++; spawnParticle(player.x, player.y, '#00ff00', 30);
-                if(player.lap > 3) finishRace();
-            }
-        }
-    }
-
-    function finishRace() {
-        player.finished = true;
-        let rank = 1; bots.forEach(b => { if(b.lap > 3) rank++; });
-        let reward = rank===1?500 : (rank===2?300:100);
-        user.points += reward;
-        let tokenMsg = document.getElementById('tokenReward');
-        if(rank === 1) { user.mergeTokens++; tokenMsg.style.display = 'block'; } else { tokenMsg.style.display = 'none'; }
-        saveUser();
-        document.getElementById('finishRank').innerText = rank + (rank===1?"st":rank===2?"nd":rank===3?"rd":"th") + " Place";
-        document.getElementById('finishPoints').innerText = reward;
-        showMenu('finishMenu');
-    }
-
     function setupOpenWorld() {
         gameState = 'openworld';
         showMenu(null);
@@ -462,7 +573,10 @@
         document.getElementById('raceInfo').style.display='none';
         document.getElementById('buildToolbar').style.display='block';
         document.getElementById('chatContainer').style.display='block';
-        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false, wormholeDelay:0 };
+        shipSwitcherEl.style.display = 'flex'; // Show in Open World
+        updateShipSwitcherUI();
+        
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96 };
         walls = []; bots = []; waypoint = null;
         blackHoles = [{ x: 1500, y: 1500, r: 80 }];
         wormholes = [{ x: -500, y: -500, tx: 500, ty: 500, color: 'cyan' }, { x: 500, y: 500, tx: -500, ty: -500, color: 'orange' }];
@@ -481,7 +595,13 @@
         for(let y=sy; y<camera.y+height; y+=g) { ctx.moveTo(camera.x,y); ctx.lineTo(camera.x+width,y); }
         ctx.stroke();
 
-        blackHoles.forEach(bh => { ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = 'purple'; ctx.lineWidth=5; ctx.stroke(); });
+        blackHoles.forEach(bh => { 
+            // Draw Event Horizon
+            ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r, 0, Math.PI*2); ctx.fill(); 
+            ctx.strokeStyle = '#800080'; ctx.lineWidth=5; ctx.stroke(); 
+            // Draw Gravity Well Visual
+            ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r + 300, 0, Math.PI*2); ctx.strokeStyle = 'rgba(128, 0, 128, 0.2)'; ctx.lineWidth=2; ctx.stroke();
+        });
         wormholes.forEach(w => { ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(Date.now()/500); ctx.strokeStyle = w.color; ctx.lineWidth=4; ctx.beginPath(); for(let i=0; i<3; i++) { ctx.arc(0,0, 30-i*5, i, Math.PI+i); } ctx.stroke(); ctx.restore(); });
         ctx.fillStyle = '#654321'; meteors.forEach(m => { ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(m.angle); ctx.beginPath(); ctx.arc(0,0, m.s, 0, Math.PI*2); ctx.fill(); ctx.restore(); });
 
@@ -605,6 +725,7 @@
         if(!selectedHangarShip) return alert("Select a ship card above first!");
         if(user.cards[selectedHangarShip] < REQ_UNLOCK) return alert(`LOCKED! You need ${REQ_UNLOCK} cards to unlock this ship!`);
         user.slots[slot] = selectedHangarShip; saveUser(); renderHangar();
+        updateShipSwitcherUI();
     }
 
     function buyBox() {
@@ -641,6 +762,21 @@
     function toggleBigMap() { let el = document.getElementById('bigMapOverlay'); el.style.display = el.style.display === 'block' ? 'none' : 'block'; }
     function createWallBox(x,y,w,h) { walls.push({x:x+w/2,y:y,w:w,h:20,angle:0}); walls.push({x:x+w/2,y:y+h,w:w,h:20,angle:0}); walls.push({x:x,y:y+h/2,w:h,h:20,angle:Math.PI/2}); walls.push({x:x+w,y:y+h/2,w:h,h:20,angle:Math.PI/2}); }
     function setBuildTool(n) { buildTool=n; document.querySelectorAll('.tool-btn').forEach((b,i)=>b.classList.toggle('active',i===n)); }
+    function finishRace() {
+        player.finished = true;
+        let rank = 1; bots.forEach(b => { if(b.lap > 3) rank++; });
+        let reward = rank===1?500 : (rank===2?300:100);
+        user.points += reward;
+        let tokenMsg = document.getElementById('tokenReward');
+        if(rank === 1) { user.mergeTokens++; tokenMsg.style.display = 'block'; } else { tokenMsg.style.display = 'none'; }
+        saveUser();
+        document.getElementById('finishRank').innerText = rank + (rank===1?"st":rank===2?"nd":rank===3?"rd":"th") + " Place";
+        document.getElementById('finishPoints').innerText = reward;
+        showMenu('finishMenu');
+    }
+    
+    // Initial UI Sync
+    updateShipSwitcherUI();
 </script>
 </body>
 </html>
