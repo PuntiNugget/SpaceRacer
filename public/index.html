@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Hangar & Combos</title>
+    <title>Stellar Drift: Fixed Physics</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; user-select: none; }
         canvas { display: block; }
@@ -308,17 +308,19 @@
     }
     requestAnimationFrame(loop);
 
-    // --- PHYSICS & ABILITIES ---
+    // --- PHYSICS & ABILITIES (FIXED) ---
     function updatePhysics() {
         if(player.finished) return;
 
         let ents = [player, ...bots];
         ents.forEach(ent => {
-            // Friction
+            // Apply Friction
             ent.vx *= 0.96; ent.vy *= 0.96;
+            
+            // Apply Movement
             ent.x += ent.vx; ent.y += ent.vy;
 
-            // Wall Collisions
+            // Check Collision
             let isPhasing = ent === player && (player.active.q > 0 && SHIPS[user.slots.q]?.name === 'Shadow' || player.active.r > 0 && SHIPS[user.slots.r]?.name === 'Shadow');
 
             if(!isPhasing) {
@@ -326,9 +328,16 @@
                     let dx = ent.x - w.x; let dy = ent.y - w.y;
                     let lx = dx * Math.cos(-w.angle) - dy * Math.sin(-w.angle);
                     let ly = dx * Math.sin(-w.angle) + dy * Math.cos(-w.angle);
+                    
+                    // Collision Detected
                     if(Math.abs(lx) < w.w/2 + 15 && Math.abs(ly) < w.h/2 + 15) {
-                        ent.vx *= -0.5; ent.vy *= -0.5;
-                        ent.x -= ent.vx*2; ent.y -= ent.vy*2;
+                        // FIX: Undo movement immediately
+                        ent.x -= ent.vx;
+                        ent.y -= ent.vy;
+                        
+                        // Bounce (Reverse Velocity)
+                        ent.vx *= -0.5;
+                        ent.vy *= -0.5;
                     }
                 });
             }
