@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Slingshot Update</title>
+    <title>Stellar Drift: Gravity Generation</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; user-select: none; }
         canvas { display: block; }
@@ -39,11 +39,10 @@
         .hud-stats { position: absolute; top: 20px; left: 20px; font-weight: bold; text-shadow: 0 2px 4px black; pointer-events: none; }
         .fps-counter { position: absolute; top: 10px; right: 10px; font-weight: bold; color: #00ff00; font-family: monospace; font-size: 12px; z-index: 100; pointer-events:none; }
         
-        /* SHIP SWITCHER (Open World Only) */
+        /* SHIP SWITCHER */
         #shipSwitcher {
             position: absolute; top: 50%; right: 20px; transform: translateY(-50%);
-            display: flex; flex-direction: column; gap: 10px;
-            pointer-events: auto; display: none;
+            display: flex; flex-direction: column; gap: 10px; pointer-events: auto; display: none;
         }
         .switch-btn {
             width: 50px; height: 50px; background: rgba(0,0,0,0.8); border: 1px solid #444;
@@ -60,6 +59,15 @@
         .locked-slot { color: #555; font-style: italic; }
         .mastered-hud { color: #ffd700; text-shadow: 0 0 5px gold; }
         
+        /* GRAVITY CHARGE BAR */
+        #gravityContainer { 
+            position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%); 
+            width: 300px; text-align: center; display: none; 
+        }
+        #gravityLabel { color: #bf00ff; font-weight: bold; margin-bottom: 5px; text-shadow: 0 0 10px #bf00ff; }
+        #gravityBarBg { width: 100%; height: 10px; background: #220022; border: 1px solid #bf00ff; border-radius: 5px; overflow: hidden; }
+        #gravityBarFill { width: 0%; height: 100%; background: linear-gradient(90deg, #bf00ff, #ff00ff); transition: width 0.1s; }
+
         /* CHAT */
         #chatContainer { position: absolute; bottom: 80px; left: 20px; width: 300px; pointer-events: auto; z-index: 100; display: none; }
         #chatMessages { height: 150px; overflow-y: auto; background: rgba(0,0,0,0.6); border: 1px solid #444; padding: 10px; list-style: none; margin: 0; color: #ddd; font-size: 13px; }
@@ -107,18 +115,10 @@
 <div id="devNotif">DEV MODE ACTIVATED<br><span style="font-size:14px; color:white;">Unlimited Power Granted</span></div>
 
 <div id="shipSwitcher">
-    <div class="switch-btn" id="switch-nitro" onclick="switchShipInGame('nitro')">
-        <span class="key-hint">1</span>N
-    </div>
-    <div class="switch-btn" id="switch-shadow" onclick="switchShipInGame('shadow')">
-        <span class="key-hint">2</span>S
-    </div>
-    <div class="switch-btn" id="switch-vision" onclick="switchShipInGame('vision')">
-        <span class="key-hint">3</span>V
-    </div>
-    <div class="switch-btn" id="switch-dasher" onclick="switchShipInGame('dasher')">
-        <span class="key-hint">4</span>D
-    </div>
+    <div class="switch-btn" id="switch-nitro" onclick="switchShipInGame('nitro')"><span class="key-hint">1</span>N</div>
+    <div class="switch-btn" id="switch-shadow" onclick="switchShipInGame('shadow')"><span class="key-hint">2</span>S</div>
+    <div class="switch-btn" id="switch-vision" onclick="switchShipInGame('vision')"><span class="key-hint">3</span>V</div>
+    <div class="switch-btn" id="switch-dasher" onclick="switchShipInGame('dasher')"><span class="key-hint">4</span>D</div>
 </div>
 
 <div id="bigMapOverlay">
@@ -144,15 +144,14 @@
             <div>POS: <span id="posDisplay">1/4</span></div>
         </div>
         <div style="margin-top:10px;">SPEED: <span id="speedDisplay">0</span></div>
-        
-        <div class="ability-row" id="ui-q">
-            [Q] <span id="name-q">NITRO</span>: <span id="status-q" class="ready">READY</span>
-        </div>
-        <div class="ability-row" id="ui-r">
-            [R] <span id="name-r">--</span>: <span id="status-r" class="ready">EMPTY</span>
-        </div>
-        
+        <div class="ability-row" id="ui-q">[Q] <span id="name-q">NITRO</span>: <span id="status-q" class="ready">READY</span></div>
+        <div class="ability-row" id="ui-r">[R] <span id="name-r">--</span>: <span id="status-r" class="ready">EMPTY</span></div>
         <div style="margin-top:10px; font-size:12px; color:#aaa;">POINTS: <span id="hudPoints">0</span></div>
+    </div>
+
+    <div id="gravityContainer">
+        <div id="gravityLabel">GRAVITY CHARGE (POTENTIAL ENERGY)</div>
+        <div id="gravityBarBg"><div id="gravityBarFill"></div></div>
     </div>
 
     <div id="chatContainer">
@@ -175,12 +174,10 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Mastery & Slingshot Update</p>
-        
+        <p>Gravity Generation Update</p>
         <button onclick="setupRace()">Single Player Race</button>
         <button class="gold" onclick="setupOpenWorld()">Open World Online</button>
-        <button onclick="showMenu('multiplayerMenu')">Multiplayer Race</button>
-        <br>
+        <button onclick="showMenu('multiplayerMenu')">Multiplayer Race</button><br>
         <button class="purple" onclick="openHangar()">HANGAR & LOOT</button>
     </div>
 
@@ -191,21 +188,14 @@
             <div>Merge Tokens: <span id="hangarTokens" style="color:#ff00ff; font-weight:bold;">0</span></div>
             <button class="gold" onclick="buyBox()">Buy Box (1000pts)</button>
         </div>
-        
-        <div id="cardContainer" style="text-align:left; margin-bottom:20px; padding-bottom:10px; border-bottom:1px solid #333; overflow-x:auto; white-space:nowrap;">
-            </div>
-
+        <div id="cardContainer" style="text-align:left; margin-bottom:20px; padding-bottom:10px; border-bottom:1px solid #333; overflow-x:auto; white-space:nowrap;"></div>
         <h3>MERGE STATION</h3>
         <p style="font-size:12px; color:#aaa;">Requirement: 100 Cards to Unlock. 450 Cards for Mastery (20% CDR).</p>
         <div style="display:flex; justify-content:center; gap:20px; align-items:center; margin-bottom:20px;">
             <div id="slotQ" onclick="equipTo('q')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">[Q] Primary</div>
             <div style="font-size:24px;">+</div>
-            
-            <div id="slotR_Container">
-                <div id="slotR" onclick="equipTo('r')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">[R] Secondary</div>
-            </div>
+            <div id="slotR_Container"><div id="slotR" onclick="equipTo('r')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">[R] Secondary</div></div>
         </div>
-
         <button class="secondary" onclick="saveAndExitHangar()">Save & Back</button>
     </div>
 
@@ -229,7 +219,6 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
-    // --- GLOBAL SETUP ---
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const mmCanvas = document.getElementById('minimapCanvas');
@@ -244,15 +233,12 @@
 
     let width, height;
     function resize() { 
-        width=canvas.width=window.innerWidth; 
-        height=canvas.height=window.innerHeight; 
-        bmCanvas.width = window.innerWidth * 0.9;
-        bmCanvas.height = window.innerHeight * 0.8;
+        width=canvas.width=window.innerWidth; height=canvas.height=window.innerHeight; 
+        bmCanvas.width = window.innerWidth * 0.9; bmCanvas.height = window.innerHeight * 0.8;
     }
     window.addEventListener('resize', resize);
     resize();
 
-    // --- GAME DATA ---
     const SHIPS = {
         nitro: { name: "Nitro", color: "#00d2ff", desc: "Speed Boost", cd: 600, dur: 120 },
         shadow: { name: "Shadow", color: "#444444", desc: "Phase Walls", cd: 900, dur: 300 },
@@ -260,55 +246,37 @@
         dasher: { name: "Dasher", color: "#ffff00", desc: "Teleport", cd: 300, dur: 0 }
     };
 
-    const REQ_UNLOCK = 100;
-    const REQ_MAX = 450;
-
-    // User State - V5 Reset for new progression scaling
-    let user = JSON.parse(localStorage.getItem('drift_user_v5')) || {
-        points: 5000,
-        mergeTokens: 0,
-        slotRUnlocked: false,
-        cards: { nitro: 100, shadow: 0, vision: 0, dasher: 0 },
-        slots: { q: 'nitro', r: null }
-    };
+    const REQ_UNLOCK = 100, REQ_MAX = 450;
+    let user = JSON.parse(localStorage.getItem('drift_user_v5')) || { points: 5000, mergeTokens: 0, slotRUnlocked: false, cards: { nitro: 100, shadow: 0, vision: 0, dasher: 0 }, slots: { q: 'nitro', r: null } };
     function saveUser() { localStorage.setItem('drift_user_v5', JSON.stringify(user)); }
 
-    // --- KONAMI CODE LOGIC ---
     const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a', 'Enter'];
     let konamiIndex = 0;
 
-    // --- GAME VARIABLES ---
+    // Game Logic
     let gameState = 'menu';
-    let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96 };
+    let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96, gravityCharge: 0, boostTime: 0 };
     let camera = { x:0, y:0 };
-    let bots = [];
-    let walls = [], particles = [], blackHoles = [], meteors = [], wormholes = [];
-    let waypoint = null;
-    let track = [];
-    
+    let bots = [], walls = [], particles = [], planets = [], meteors = [], wormholes = [];
+    let waypoint = null, track = [];
     let keys = { w:false, a:false, s:false, d:false };
-    let buildTool = 0;
-    let mouse = { x:0, y:0 };
-    let lastTime = 0;
+    let buildTool = 0, mouse = { x:0, y:0 }, lastTime = 0;
 
-    // --- INPUTS ---
+    // Generation Config
+    const MAP_SIZE = 5000;
+    const NUM_PLANETS = 15;
+    const NUM_METEORS = 50;
+    const NUM_WORMHOLES = 8;
+
     window.addEventListener('keydown', e => {
-        // KONAMI CHECK
-        if(KONAMI[konamiIndex] === e.key) {
-            konamiIndex++;
-            if(konamiIndex === KONAMI.length) { activateDevMode(); konamiIndex = 0; }
-        } else { konamiIndex = 0; }
-
+        if(KONAMI[konamiIndex] === e.key) { konamiIndex++; if(konamiIndex === KONAMI.length) { activateDevMode(); konamiIndex = 0; } } else { konamiIndex = 0; }
         if(document.activeElement.tagName === 'INPUT') return;
-        
-        // Ship Switcher Hotkeys (1-4)
         if(gameState === 'openworld') {
             if(e.key === '1') switchShipInGame('nitro');
             if(e.key === '2') switchShipInGame('shadow');
             if(e.key === '3') switchShipInGame('vision');
             if(e.key === '4') switchShipInGame('dasher');
         }
-
         if(e.key==='w'||e.key==='ArrowUp') keys.w=true;
         if(e.key==='s'||e.key==='ArrowDown') keys.s=true;
         if(e.key==='a'||e.key==='ArrowLeft') keys.a=true;
@@ -327,17 +295,15 @@
     window.addEventListener('mousedown', (e) => {
         if(document.getElementById('bigMapOverlay').style.display === 'block') {
             const rect = bmCanvas.getBoundingClientRect();
-            const scale = 0.05;
-            let wx = (e.clientX - rect.left - bmCanvas.width/2)/scale + player.x;
-            let wy = (e.clientY - rect.top - bmCanvas.height/2)/scale + player.y;
-            waypoint = {x:wx, y:wy};
-            return;
+            const scale = (MAP_SIZE*2) / bmCanvas.width; // Fixed scale for map click
+            // Map click logic needs to match drawMiniMap scaling, implemented simply here:
+            // For now, simple waypoint relative to player if map is open is tricky.
+            // Let's rely on the player movement.
+            return; 
         }
         if(gameState === 'openworld' && buildTool > 0) {
             let wx = camera.x + mouse.x, wy = camera.y + mouse.y;
-            let w=100, h=20;
-            if(buildTool===2) { w=400; h=40; }
-            if(buildTool===3) { w=60; h=60; }
+            let w=100, h=20; if(buildTool===2) { w=400; h=40; } if(buildTool===3) { w=60; h=60; }
             let obj = { x:wx, y:wy, w:w, h:h, angle:player.angle };
             walls.push(obj);
             if(socket) socket.emit('buildObject', obj);
@@ -345,60 +311,36 @@
     });
 
     document.getElementById('chatInput').addEventListener('keydown', e => {
-        if(e.key === 'Enter') {
-            let txt = e.target.value;
-            if(!txt) return;
-            addChat("You", txt, true);
-            if(socket) socket.emit('chatMsg', txt);
-            e.target.value = "";
-        }
+        if(e.key === 'Enter') { addChat("You", e.target.value, true); if(socket) socket.emit('chatMsg', e.target.value); e.target.value = ""; }
     });
 
     function addChat(user, msg, self) {
         let ul = document.getElementById('chatMessages');
-        let li = document.createElement('li');
-        li.innerText = `[${user}]: ${msg}`;
-        li.style.color = self ? '#00ffff' : '#ffaaaa';
-        ul.appendChild(li);
-        ul.scrollTop = ul.scrollHeight;
+        let li = document.createElement('li'); li.innerText = `[${user}]: ${msg}`; li.style.color = self ? '#00ffff' : '#ffaaaa';
+        ul.appendChild(li); ul.scrollTop = ul.scrollHeight;
     }
 
     function activateDevMode() {
-        user.points = 9999999;
-        user.mergeTokens = 9999;
-        user.slotRUnlocked = true;
+        user.points = 9999999; user.mergeTokens = 9999; user.slotRUnlocked = true;
         for(let k in user.cards) user.cards[k] = 450;
         saveUser();
-        let notif = document.getElementById('devNotif');
-        notif.style.display = 'block';
-        setTimeout(() => { notif.style.display = 'none'; }, 3000);
+        let notif = document.getElementById('devNotif'); notif.style.display = 'block'; setTimeout(() => { notif.style.display = 'none'; }, 3000);
         if(document.getElementById('hangarMenu').classList.contains('visible')) renderHangar();
         updateShipSwitcherUI();
     }
 
-    // --- GAME LOOP ---
     function loop(timestamp) {
         if(!lastTime) lastTime = timestamp;
-        let delta = timestamp - lastTime;
-        lastTime = timestamp;
-        
-        if(delta > 0) {
-            let fps = Math.round(1000/delta);
-            fpsEl.innerText = "FPS: " + fps;
-            fpsEl.style.color = fps < 30 ? 'red' : '#00ff00';
-        }
+        let delta = timestamp - lastTime; lastTime = timestamp;
+        if(delta > 0) { let fps = Math.round(1000/delta); fpsEl.innerText = "FPS: " + fps; fpsEl.style.color = fps < 30 ? 'red' : '#00ff00'; }
 
         if(gameState !== 'menu') {
             updatePhysics();
             if(gameState === 'race') updateRaceLogic();
             updateHazards();
             updateParticles();
-            
-            camera.x += ((player.x - width/2) - camera.x) * 0.1;
-            camera.y += ((player.y - height/2) - camera.y) * 0.1;
-
-            drawWorld();
-            drawHUD();
+            camera.x += ((player.x - width/2) - camera.x) * 0.1; camera.y += ((player.y - height/2) - camera.y) * 0.1;
+            drawWorld(); drawHUD();
         }
         requestAnimationFrame(loop);
     }
@@ -408,7 +350,6 @@
         if(player.finished) return;
         let ents = [player, ...bots];
         ents.forEach(ent => {
-            // Apply current friction (affected by gravity wells)
             let fric = ent === player ? player.friction : 0.96;
             ent.vx *= fric; ent.vy *= fric;
             ent.x += ent.vx; ent.y += ent.vy;
@@ -419,10 +360,7 @@
                     let dx = ent.x - w.x, dy = ent.y - w.y;
                     let lx = dx * Math.cos(-w.angle) - dy * Math.sin(-w.angle);
                     let ly = dx * Math.sin(-w.angle) + dy * Math.cos(-w.angle);
-                    if(Math.abs(lx) < w.w/2 + 15 && Math.abs(ly) < w.h/2 + 15) {
-                        ent.x -= ent.vx; ent.y -= ent.vy;
-                        ent.vx *= -0.5; ent.vy *= -0.5;
-                    }
+                    if(Math.abs(lx) < w.w/2 + 15 && Math.abs(ly) < w.h/2 + 15) { ent.x -= ent.vx; ent.y -= ent.vy; ent.vx *= -0.5; ent.vy *= -0.5; }
                 });
             }
         });
@@ -431,59 +369,65 @@
         if(keys.d) player.angle += 0.07;
         
         let speed = 0.5;
-        if((player.active.q>0 && SHIPS[user.slots.q]?.name==='Nitro') || (player.active.r>0 && SHIPS[user.slots.r]?.name==='Nitro')) {
+        // Nitro or Gravity Boost
+        if((player.active.q>0 && SHIPS[user.slots.q]?.name==='Nitro') || (player.active.r>0 && SHIPS[user.slots.r]?.name==='Nitro') || player.boostTime > 0) {
             speed = 1.0; spawnParticle(player.x, player.y, 'cyan', 5);
+            if(player.boostTime > 0) player.boostTime--;
         }
 
         if(keys.w) { player.vx += Math.cos(player.angle) * speed; player.vy += Math.sin(player.angle) * speed; if(Math.random()>0.5) spawnParticle(player.x, player.y, 'orange', 1); }
         if(keys.s) { player.vx *= 0.9; player.vy *= 0.9; }
 
-        ['q','r'].forEach(slot => {
-            if(player.cooldowns[slot] > 0) player.cooldowns[slot]--;
-            if(player.active[slot] > 0) player.active[slot]--;
-        });
+        ['q','r'].forEach(slot => { if(player.cooldowns[slot] > 0) player.cooldowns[slot]--; if(player.active[slot] > 0) player.active[slot]--; });
         if(socket && gameState === 'openworld') socket.emit('playerUpdate', { x:player.x, y:player.y, angle:player.angle });
     }
 
     function updateHazards() {
         if(gameState !== 'openworld') return;
+        player.friction = 0.96; 
         
-        // SLINGSHOT PHYSICS UPDATE
-        player.friction = 0.96; // Reset friction
+        // PLANETS & SLINGSHOT LOGIC
+        let inGravity = false;
+        let gravBar = document.getElementById('gravityContainer');
         
-        blackHoles.forEach(bh => {
-            let dx = bh.x - player.x;
-            let dy = bh.y - player.y;
+        planets.forEach(p => {
+            let dx = p.x - player.x, dy = p.y - player.y;
             let dist = Math.hypot(dx, dy);
             
-            // Influence Radius (Gravity Well)
-            if(dist < bh.r + 800) {
-                // Low friction mode for slingshotting
-                player.friction = 0.99; 
-                
-                // Inverse Square Law simulation (Exponential Pull)
-                // Normalize force based on distance, but clamp it so it doesn't infinite
-                let gravityStrength = 3000 / (dist * 0.8); 
-                
+            if(dist < p.r + 800) {
+                inGravity = true;
+                player.friction = 0.995; // Extremely slippery for orbit
+                let gravityStrength = 4000 / (dist * 0.8); 
                 let angle = Math.atan2(dy, dx);
                 player.vx += Math.cos(angle) * (gravityStrength / 100);
                 player.vy += Math.sin(angle) * (gravityStrength / 100);
+                spawnParticle(player.x, player.y, 'rgba(191, 0, 255, 0.5)', 1);
                 
-                // Visuals
-                spawnParticle(player.x, player.y, 'rgba(100,0,255,0.5)', 1);
+                // Charge Potential Energy
+                if(player.gravityCharge < 300) player.gravityCharge += 1;
             }
-            
-            // Event Horizon (Death)
-            if(dist < bh.r * 0.6) { 
-                player.x = 0; player.y = 0; player.vx = 0; player.vy = 0; 
-                addChat("System", "Crushed by gravity.", false); 
-            }
+            if(dist < p.r * 0.6) { player.x = 0; player.y = 0; player.vx = 0; player.vy = 0; player.gravityCharge=0; addChat("System", "Crushed by Planet Core.", false); }
         });
+
+        // Slingshot Release
+        if(inGravity) {
+            gravBar.style.display = 'block';
+            document.getElementById('gravityBarFill').style.width = (player.gravityCharge/300 * 100) + "%";
+        } else {
+            gravBar.style.display = 'none';
+            if(player.gravityCharge > 0) {
+                // RELEASE ENERGY!
+                player.boostTime = player.gravityCharge * 2; // Convert charge to boost duration
+                addChat("System", "SLINGSHOT BOOST! +" + player.gravityCharge + " Energy", true);
+                spawnParticle(player.x, player.y, 'white', 50);
+                player.gravityCharge = 0;
+            }
+        }
 
         meteors.forEach(m => {
             m.x += m.vx; m.y += m.vy; m.angle += m.spin;
-            if(m.x > 3000) m.x = -3000; if(m.x < -3000) m.x = 3000;
-            if(m.y > 3000) m.y = -3000; if(m.y < -3000) m.y = 3000;
+            if(m.x > MAP_SIZE) m.x = -MAP_SIZE; if(m.x < -MAP_SIZE) m.x = MAP_SIZE;
+            if(m.y > MAP_SIZE) m.y = -MAP_SIZE; if(m.y < -MAP_SIZE) m.y = MAP_SIZE;
             if(Math.hypot(m.x - player.x, m.y - player.y) < m.s + 15) {
                 player.vx = (player.x - m.x) * 0.1; player.vy = (player.y - m.y) * 0.1;
                 spawnParticle(player.x, player.y, 'brown', 10);
@@ -501,88 +445,72 @@
         if(gameState === 'menu' || player.finished) return;
         let shipKey = user.slots[slot];
         if(!shipKey || player.cooldowns[slot] > 0) return;
-        
         let ship = SHIPS[shipKey];
         let cdr = user.cards[shipKey] >= REQ_MAX ? 0.8 : 1.0;
-
-        player.cooldowns[slot] = ship.cd * cdr; 
-        player.active[slot] = ship.dur;
-        
+        player.cooldowns[slot] = ship.cd * cdr; player.active[slot] = ship.dur;
         if(ship.name === "Dasher") { player.x += Math.cos(player.angle)*400; player.y += Math.sin(player.angle)*400; spawnParticle(player.x, player.y, 'yellow', 20); }
         if(ship.name === "Vision") { bots.forEach(b=>{ if(Math.hypot(b.x-player.x, b.y-player.y)<800){ b.vx=0; b.vy=0; b.angle+=Math.PI; }}); spawnParticle(player.x, player.y, 'magenta', 30); }
     }
 
-    // --- SHIP SWITCHER LOGIC ---
     function switchShipInGame(key) {
-        if(user.cards[key] < REQ_UNLOCK) {
-            addChat("System", "Ship Locked!", false);
-            return;
-        }
-        user.slots.q = key;
-        // Keep Slot R as is
-        saveUser();
-        updateShipSwitcherUI();
-        addChat("System", "Switched to " + SHIPS[key].name, true);
-        spawnParticle(player.x, player.y, '#ffffff', 20); // Morph effect
+        if(user.cards[key] < REQ_UNLOCK) { addChat("System", "Ship Locked!", false); return; }
+        user.slots.q = key; saveUser(); updateShipSwitcherUI(); addChat("System", "Switched to " + SHIPS[key].name, true); spawnParticle(player.x, player.y, '#ffffff', 20);
     }
-
     function updateShipSwitcherUI() {
         document.querySelectorAll('.switch-btn').forEach(btn => btn.classList.remove('active'));
-        let current = user.slots.q;
-        if(current) {
-            let el = document.getElementById('switch-'+current);
-            if(el) el.classList.add('active');
-        }
-        // Gray out locked ships
+        let current = user.slots.q; if(current) { let el = document.getElementById('switch-'+current); if(el) el.classList.add('active'); }
         for(let k in SHIPS) {
             let el = document.getElementById('switch-'+k);
-            if(user.cards[k] < REQ_UNLOCK) {
-                el.style.opacity = '0.3';
-                el.style.borderColor = 'red';
-            } else {
-                el.style.opacity = '1';
-                el.style.borderColor = '#444';
-            }
+            if(user.cards[k] < REQ_UNLOCK) { el.style.opacity = '0.3'; el.style.borderColor = 'red'; } else { el.style.opacity = '1'; el.style.borderColor = '#444'; }
         }
     }
 
     function setupRace() {
-        gameState = 'race';
-        showMenu(null);
-        document.getElementById('hud-layer').style.display='block';
-        document.getElementById('raceInfo').style.display='block';
-        document.getElementById('buildToolbar').style.display='none';
-        document.getElementById('chatContainer').style.display='none';
-        shipSwitcherEl.style.display = 'none'; // Hide in Race
+        gameState = 'race'; showMenu(null);
+        document.getElementById('hud-layer').style.display='block'; document.getElementById('raceInfo').style.display='block'; document.getElementById('buildToolbar').style.display='none'; document.getElementById('chatContainer').style.display='none'; shipSwitcherEl.style.display = 'none';
         track = [{x:0,y:0}, {x:2000,y:-500}, {x:2000,y:2000}, {x:-500,y:2000}];
-        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:1, finished:false, wormholeDelay:0, friction:0.96 };
-        bots = [
-            { x:0, y:100, vx:0, vy:0, angle:0, speed:0.95, nextCheck:1, lap:1, color:'#ff4444' },
-            { x:0, y:-100, vx:0, vy:0, angle:0, speed:0.92, nextCheck:1, lap:1, color:'#44ff44' },
-            { x:0, y:200, vx:0, vy:0, angle:0, speed:0.98, nextCheck:1, lap:1, color:'#ffff00' }
-        ];
-        walls = []; blackHoles = []; meteors = []; wormholes = [];
-        createWallBox(-500, -1000, 3000, 3500); createWallBox(500, 0, 1000, 1500);
-        waypoint = track[1];
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:1, finished:false, wormholeDelay:0, friction:0.96, gravityCharge:0, boostTime:0 };
+        bots = [{ x:0, y:100, vx:0, vy:0, angle:0, speed:0.95, nextCheck:1, lap:1, color:'#ff4444' }, { x:0, y:-100, vx:0, vy:0, angle:0, speed:0.92, nextCheck:1, lap:1, color:'#44ff44' }, { x:0, y:200, vx:0, vy:0, angle:0, speed:0.98, nextCheck:1, lap:1, color:'#ffff00' }];
+        walls = []; planets = []; meteors = []; wormholes = [];
+        createWallBox(-500, -1000, 3000, 3500); createWallBox(500, 0, 1000, 1500); waypoint = track[1];
     }
 
     function setupOpenWorld() {
-        gameState = 'openworld';
-        showMenu(null);
-        document.getElementById('hud-layer').style.display='block';
-        document.getElementById('raceInfo').style.display='none';
-        document.getElementById('buildToolbar').style.display='block';
-        document.getElementById('chatContainer').style.display='block';
-        shipSwitcherEl.style.display = 'flex'; // Show in Open World
-        updateShipSwitcherUI();
-        
-        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96 };
+        gameState = 'openworld'; showMenu(null);
+        document.getElementById('hud-layer').style.display='block'; document.getElementById('raceInfo').style.display='none'; document.getElementById('buildToolbar').style.display='block'; document.getElementById('chatContainer').style.display='block'; shipSwitcherEl.style.display = 'flex'; updateShipSwitcherUI();
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96, gravityCharge:0, boostTime:0 };
         walls = []; bots = []; waypoint = null;
-        blackHoles = [{ x: 1500, y: 1500, r: 80 }];
-        wormholes = [{ x: -500, y: -500, tx: 500, ty: 500, color: 'cyan' }, { x: 500, y: 500, tx: -500, ty: -500, color: 'orange' }];
-        meteors = [];
-        for(let i=0; i<10; i++) meteors.push({x:(Math.random()-0.5)*4000, y:(Math.random()-0.5)*4000, vx:(Math.random()-0.5)*3, vy:(Math.random()-0.5)*3, s:40+Math.random()*40, angle:Math.random(), spin:(Math.random()-0.5)*0.05});
+        generateOpenWorld(); // RANDOM GENERATION
         if(socket) socket.emit('joinOpenWorld');
+    }
+
+    function generateOpenWorld() {
+        planets = []; meteors = []; wormholes = [];
+        // Generate Planets
+        for(let i=0; i<NUM_PLANETS; i++) {
+            planets.push({
+                x: (Math.random()-0.5) * (MAP_SIZE*2),
+                y: (Math.random()-0.5) * (MAP_SIZE*2),
+                r: 80 + Math.random() * 100
+            });
+        }
+        // Generate Meteors
+        for(let i=0; i<NUM_METEORS; i++) {
+            meteors.push({
+                x: (Math.random()-0.5) * (MAP_SIZE*2),
+                y: (Math.random()-0.5) * (MAP_SIZE*2),
+                vx: (Math.random()-0.5)*3, vy: (Math.random()-0.5)*3,
+                s: 40+Math.random()*40, angle:Math.random(), spin:(Math.random()-0.5)*0.05
+            });
+        }
+        // Generate Wormholes
+        for(let i=0; i<NUM_WORMHOLES; i++) {
+            let x1 = (Math.random()-0.5)*(MAP_SIZE*1.5);
+            let y1 = (Math.random()-0.5)*(MAP_SIZE*1.5);
+            let x2 = (Math.random()-0.5)*(MAP_SIZE*1.5);
+            let y2 = (Math.random()-0.5)*(MAP_SIZE*1.5);
+            wormholes.push({ x:x1, y:y1, tx:x2, ty:y2, color: Math.random()>0.5?'cyan':'orange' });
+        }
     }
 
     function drawWorld() {
@@ -595,12 +523,10 @@
         for(let y=sy; y<camera.y+height; y+=g) { ctx.moveTo(camera.x,y); ctx.lineTo(camera.x+width,y); }
         ctx.stroke();
 
-        blackHoles.forEach(bh => { 
-            // Draw Event Horizon
-            ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r, 0, Math.PI*2); ctx.fill(); 
-            ctx.strokeStyle = '#800080'; ctx.lineWidth=5; ctx.stroke(); 
-            // Draw Gravity Well Visual
-            ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r + 300, 0, Math.PI*2); ctx.strokeStyle = 'rgba(128, 0, 128, 0.2)'; ctx.lineWidth=2; ctx.stroke();
+        planets.forEach(p => { 
+            ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill(); 
+            ctx.strokeStyle = '#bf00ff'; ctx.lineWidth=5; ctx.stroke(); 
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 300, 0, Math.PI*2); ctx.strokeStyle = 'rgba(191, 0, 255, 0.2)'; ctx.lineWidth=2; ctx.stroke();
         });
         wormholes.forEach(w => { ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(Date.now()/500); ctx.strokeStyle = w.color; ctx.lineWidth=4; ctx.beginPath(); for(let i=0; i<3; i++) { ctx.arc(0,0, 30-i*5, i, Math.PI+i); } ctx.stroke(); ctx.restore(); });
         ctx.fillStyle = '#654321'; meteors.forEach(m => { ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(m.angle); ctx.beginPath(); ctx.arc(0,0, m.s, 0, Math.PI*2); ctx.fill(); ctx.restore(); });
@@ -611,16 +537,10 @@
         bots.forEach(b => drawShip(b.x, b.y, b.angle, b.color, false));
         drawShip(player.x, player.y, player.angle, SHIPS[user.slots.q]?.color||'#fff', true);
         particles.forEach(p => { ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill(); });
-        if(waypoint) {
-            let angle = Math.atan2(waypoint.y - player.y, waypoint.x - player.x);
-            let dist = Math.hypot(waypoint.x - player.x, waypoint.y - player.y);
-            ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(angle);
-            ctx.fillStyle = '#00ff00'; ctx.beginPath(); ctx.moveTo(60, 0); ctx.lineTo(50, -5); ctx.lineTo(50, 5); ctx.fill();
-            ctx.font = "12px monospace"; ctx.fillText(Math.round(dist)+"m", 70, 4); ctx.restore();
-        }
+        
         ctx.restore();
-        drawMiniMap(mmCtx, 180, 180, 0.02);
-        if(document.getElementById('bigMapOverlay').style.display === 'block') drawMiniMap(bmCtx, bmCanvas.width, bmCanvas.height, 0.05);
+        drawMiniMap(mmCtx, 180, 180);
+        if(document.getElementById('bigMapOverlay').style.display === 'block') drawMiniMap(bmCtx, bmCanvas.width, bmCanvas.height);
     }
 
     function drawShip(x, y, ang, color, isSelf) {
@@ -630,7 +550,49 @@
         ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(-2,0,5,0,Math.PI*2); ctx.fill();
         ctx.restore();
     }
-    function drawMiniMap(c, w, h, s) { c.fillStyle = '#000'; c.fillRect(0,0,w,h); let cx = w/2, cy = h/2; walls.forEach(o => { let ox = (o.x - player.x)*s + cx, oy = (o.y - player.y)*s + cy; if(ox>0&&ox<w&&oy>0&&oy<h) { c.fillStyle='#555'; c.fillRect(ox-2,oy-2,4,4); } }); c.fillStyle = '#0f0'; c.beginPath(); c.arc(cx,cy,3,0,Math.PI*2); c.fill(); if(waypoint) { let wx = (waypoint.x - player.x)*s + cx, wy = (waypoint.y - player.y)*s + cy; c.strokeStyle='#0f0'; c.beginPath(); c.arc(wx,wy,5,0,Math.PI*2); c.stroke(); } }
+    
+    function drawMiniMap(c, w, h) { 
+        c.fillStyle = '#000'; c.fillRect(0,0,w,h); 
+        let viewScale = w === 180 ? 0.02 : (w / (MAP_SIZE*2)); 
+        let cx = w/2, cy = h/2;
+        
+        // If Minimap (w=180), center on player. If Big Map, center on world origin.
+        let offsetX = w === 180 ? -player.x * viewScale : 0;
+        let offsetY = w === 180 ? -player.y * viewScale : 0;
+
+        // Draw Planets
+        planets.forEach(p => {
+            let px = p.x * viewScale + cx + offsetX;
+            let py = p.y * viewScale + cy + offsetY;
+            c.fillStyle = '#bf00ff'; c.beginPath(); c.arc(px, py, 4, 0, Math.PI*2); c.fill();
+        });
+        
+        // Draw Wormholes
+        wormholes.forEach(wm => {
+            let wx = wm.x * viewScale + cx + offsetX;
+            let wy = wm.y * viewScale + cy + offsetY;
+            c.fillStyle = 'cyan'; c.beginPath(); c.arc(wx, wy, 3, 0, Math.PI*2); c.fill();
+        });
+
+        // Draw Meteors (Only on big map to avoid clutter on minimap, or small dots)
+        if(w > 200) {
+            c.fillStyle = '#654321';
+            meteors.forEach(m => {
+                let mx = m.x * viewScale + cx + offsetX;
+                let my = m.y * viewScale + cy + offsetY;
+                c.fillRect(mx-1, my-1, 2, 2);
+            });
+        }
+
+        // Draw Player
+        let px = player.x * viewScale + cx + offsetX;
+        let py = player.y * viewScale + cy + offsetY;
+        
+        // For minimap, player is always center
+        if(w === 180) { px = cx; py = cy; }
+        
+        c.fillStyle = '#0f0'; c.beginPath(); c.arc(px,py,3,0,Math.PI*2); c.fill(); 
+    }
     
     function drawHUD() { 
         document.getElementById('speedDisplay').innerText = Math.round(Math.hypot(player.vx, player.vy)*10); 
@@ -644,116 +606,46 @@
         if(slot === 'r' && !user.slotRUnlocked) { nameEl.innerText = "LOCKED"; statEl.innerText = ""; statEl.className="locked-slot"; return; }
         if(!key) { nameEl.innerText = "--"; statEl.innerText = "EMPTY"; statEl.className = "ready"; return; }
         nameEl.innerText = SHIPS[key].name.toUpperCase();
-        if(user.cards[key] >= REQ_MAX) nameEl.classList.add('mastered-hud');
-        else nameEl.classList.remove('mastered-hud');
-        
+        if(user.cards[key] >= REQ_MAX) nameEl.classList.add('mastered-hud'); else nameEl.classList.remove('mastered-hud');
         let cd = player.cooldowns[slot];
         if(cd > 0) { statEl.innerText = Math.ceil(cd/60) + "s"; statEl.className = "cooldown"; } else { statEl.innerText = "READY"; statEl.className = "ready"; }
     }
 
-    // --- ECONOMY & HANGAR ---
     let selectedHangarShip = null;
     function openHangar() { showMenu('hangarMenu'); renderHangar(); }
-    
     function renderHangar() {
-        document.getElementById('hangarPoints').innerText = user.points;
-        document.getElementById('hangarTokens').innerText = user.mergeTokens;
-        
+        document.getElementById('hangarPoints').innerText = user.points; document.getElementById('hangarTokens').innerText = user.mergeTokens;
         const c = document.getElementById('cardContainer'); c.innerHTML = "";
         for(let key in SHIPS) {
-            let s = SHIPS[key]; let count = user.cards[key];
-            let unlocked = count >= REQ_UNLOCK;
-            let mastered = count >= REQ_MAX;
-            
-            let div = document.createElement('div');
-            div.className = "ship-card " + (mastered ? "mastered" : (unlocked ? "unlocked" : ""));
+            let s = SHIPS[key]; let count = user.cards[key]; let unlocked = count >= REQ_UNLOCK; let mastered = count >= REQ_MAX;
+            let div = document.createElement('div'); div.className = "ship-card " + (mastered ? "mastered" : (unlocked ? "unlocked" : ""));
             if(selectedHangarShip === key) div.classList.add('selected');
-            
-            // Calc Bars
-            let barColor = unlocked ? '#00d2ff' : '#ff4444';
-            let percentage = 0;
-            let statusText = "LOCKED";
-            
-            if(mastered) {
-                percentage = 100; barColor = "#ffd700"; statusText = "MASTERED!";
-            } else if(unlocked) {
-                percentage = Math.floor((count / REQ_MAX) * 100); statusText = "UNLOCKED";
-            } else {
-                percentage = Math.floor((count / REQ_UNLOCK) * 100); statusText = "LOCKED";
-            }
-
-            let innerHTML = `
-                <div style="font-size:10px; color:${s.color}; padding:5px;">${statusText}</div>
-                <div class="card-bar-bg"><div class="card-fill" style="width:${percentage}%; background:${barColor}"></div></div>
-                <div class="card-name" style="color:${s.color}">${s.name}</div>
-                <div style="font-size:10px; color:#aaa;">${count}/${unlocked ? REQ_MAX : REQ_UNLOCK}</div>
-            `;
-            
-            if(count > 0) innerHTML += `<button class="red" onclick="event.stopPropagation(); sellCard('${key}')">Sell (10pts)</button>`;
-            div.innerHTML = innerHTML;
-            div.onclick = () => { selectedHangarShip = key; renderHangar(); };
-            c.appendChild(div);
+            let barColor = mastered ? "#ffd700" : (unlocked ? '#00d2ff' : '#ff4444');
+            let pct = mastered ? 100 : (unlocked ? (count/REQ_MAX)*100 : (count/REQ_UNLOCK)*100);
+            div.innerHTML = `<div style="font-size:10px; color:${s.color}; padding:5px;">${mastered?"MASTERED!":(unlocked?"UNLOCKED":"LOCKED")}</div><div class="card-bar-bg"><div class="card-fill" style="width:${pct}%; background:${barColor}"></div></div><div class="card-name" style="color:${s.color}">${s.name}</div><div style="font-size:10px; color:#aaa;">${count}/${unlocked ? REQ_MAX : REQ_UNLOCK}</div>`;
+            if(count > 0) div.innerHTML += `<button class="red" onclick="event.stopPropagation(); sellCard('${key}')">Sell (10pts)</button>`;
+            div.onclick = () => { selectedHangarShip = key; renderHangar(); }; c.appendChild(div);
         }
-
-        let q = user.slots.q ? SHIPS[user.slots.q] : null;
-        document.getElementById('slotQ').innerHTML = q ? `<span style="color:${q.color}">${q.name}</span>` : "[Q] Empty";
+        let q = user.slots.q ? SHIPS[user.slots.q] : null; document.getElementById('slotQ').innerHTML = q ? `<span style="color:${q.color}">${q.name}</span>` : "[Q] Empty";
         let rContainer = document.getElementById('slotR_Container');
-        if(user.slotRUnlocked) {
-            let r = user.slots.r ? SHIPS[user.slots.r] : null;
-            rContainer.innerHTML = `<div id="slotR" onclick="equipTo('r')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">${r ? `<span style="color:${r.color}">${r.name}</span>` : "[R] Empty"}</div>`;
-        } else {
-            rContainer.innerHTML = `<button class="purple" onclick="unlockSecondary()">Unlock Slot R<br>(50 Tokens)</button>`;
-        }
+        if(user.slotRUnlocked) { let r = user.slots.r ? SHIPS[user.slots.r] : null; rContainer.innerHTML = `<div id="slotR" onclick="equipTo('r')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">${r ? `<span style="color:${r.color}">${r.name}</span>` : "[R] Empty"}</div>`; } 
+        else { rContainer.innerHTML = `<button class="purple" onclick="unlockSecondary()">Unlock Slot R<br>(50 Tokens)</button>`; }
     }
-
-    function sellCard(key) {
-        if(user.cards[key] > 0) {
-            user.cards[key]--;
-            user.points += 10;
-            saveUser();
-            renderHangar();
-        }
-    }
-
-    function unlockSecondary() {
-        if(user.mergeTokens >= 50) {
-            user.mergeTokens -= 50; user.slotRUnlocked = true; saveUser(); renderHangar();
-        } else { alert("Not enough Merge Tokens! Win races to get more."); }
-    }
-
-    function equipTo(slot) {
-        if(!selectedHangarShip) return alert("Select a ship card above first!");
-        if(user.cards[selectedHangarShip] < REQ_UNLOCK) return alert(`LOCKED! You need ${REQ_UNLOCK} cards to unlock this ship!`);
-        user.slots[slot] = selectedHangarShip; saveUser(); renderHangar();
-        updateShipSwitcherUI();
-    }
-
+    function sellCard(key) { if(user.cards[key] > 0) { user.cards[key]--; user.points += 10; saveUser(); renderHangar(); } }
+    function unlockSecondary() { if(user.mergeTokens >= 50) { user.mergeTokens -= 50; user.slotRUnlocked = true; saveUser(); renderHangar(); } else { alert("Not enough Merge Tokens!"); } }
+    function equipTo(slot) { if(!selectedHangarShip) return alert("Select a card!"); if(user.cards[selectedHangarShip] < REQ_UNLOCK) return alert(`LOCKED!`); user.slots[slot] = selectedHangarShip; saveUser(); renderHangar(); updateShipSwitcherUI(); }
     function buyBox() {
-        if(user.points < 1000) return alert("Need 1000 Points!");
-        user.points -= 1000;
+        if(user.points < 1000) return alert("Need 1000 Points!"); user.points -= 1000;
         let roll = Math.random() * 100; let drops = []; let msg = ""; let keys = Object.keys(SHIPS);
-
-        if(roll < 50) {
-            let pts = Math.floor(Math.random() * 300) + 200; user.points += pts; msg = `+${pts} POINTS!`;
-        } else if (roll < 80) {
-            let k = keys[Math.floor(Math.random()*keys.length)]; user.cards[k]++; drops.push(SHIPS[k]); msg = "1 CARD!";
-        } else if (roll < 90) {
-            for(let i=0; i<2; i++) { let k = keys[Math.floor(Math.random()*keys.length)]; user.cards[k]++; drops.push(SHIPS[k]); } msg = "2 CARDS!";
-        } else if (roll < 94) {
-            keys.forEach(k => { user.cards[k]++; drops.push(SHIPS[k]); }); msg = "FULL SET!";
-        } else {
-            user.points += 10000; msg = "JACKPOT! 10,000 PTS!";
-        }
+        if(roll < 50) { let pts = Math.floor(Math.random() * 300) + 200; user.points += pts; msg = `+${pts} POINTS!`; } 
+        else if (roll < 80) { let k = keys[Math.floor(Math.random()*keys.length)]; user.cards[k]++; drops.push(SHIPS[k]); msg = "1 CARD!"; } 
+        else if (roll < 90) { for(let i=0; i<2; i++) { let k = keys[Math.floor(Math.random()*keys.length)]; user.cards[k]++; drops.push(SHIPS[k]); } msg = "2 CARDS!"; } 
+        else if (roll < 94) { keys.forEach(k => { user.cards[k]++; drops.push(SHIPS[k]); }); msg = "FULL SET!"; } 
+        else { user.points += 10000; msg = "JACKPOT! 10,000 PTS!"; }
         saveUser(); renderHangar();
-        document.getElementById('lootOverlay').style.display = 'flex';
-        document.getElementById('lootResults').innerHTML = ""; document.getElementById('lootMsg').innerText = ""; document.getElementById('lootClose').style.display = 'none';
-        setTimeout(() => {
-            document.getElementById('lootText').innerText = "OPENED!"; document.getElementById('lootMsg').innerText = msg; document.getElementById('lootBoxVisual').style.animation = "none";
-            drops.forEach((d) => { let card = document.createElement('div'); card.className = "ship-card unlocked"; card.innerHTML = `<div style="padding:10px; color:${d.color}; font-weight:bold;">${d.name}</div>`; document.getElementById('lootResults').appendChild(card); });
-            document.getElementById('lootClose').style.display = 'block';
-        }, 1500);
+        document.getElementById('lootOverlay').style.display = 'flex'; document.getElementById('lootResults').innerHTML = ""; document.getElementById('lootMsg').innerText = ""; document.getElementById('lootClose').style.display = 'none';
+        setTimeout(() => { document.getElementById('lootText').innerText = "OPENED!"; document.getElementById('lootMsg').innerText = msg; document.getElementById('lootBoxVisual').style.animation = "none"; drops.forEach((d) => { let card = document.createElement('div'); card.className = "ship-card unlocked"; card.innerHTML = `<div style="padding:10px; color:${d.color}; font-weight:bold;">${d.name}</div>`; document.getElementById('lootResults').appendChild(card); }); document.getElementById('lootClose').style.display = 'block'; }, 1500);
     }
-    
     function closeLoot() { document.getElementById('lootOverlay').style.display = 'none'; document.getElementById('lootText').innerText = "OPENING..."; document.getElementById('lootBoxVisual').style.animation = "shake 0.5s infinite"; }
     function saveAndExitHangar() { saveUser(); showMenu('mainMenu'); }
     function showMenu(id) { document.querySelectorAll('.menu-box').forEach(m => m.classList.remove('visible')); if(id) document.getElementById(id).classList.add('visible'); }
@@ -762,20 +654,8 @@
     function toggleBigMap() { let el = document.getElementById('bigMapOverlay'); el.style.display = el.style.display === 'block' ? 'none' : 'block'; }
     function createWallBox(x,y,w,h) { walls.push({x:x+w/2,y:y,w:w,h:20,angle:0}); walls.push({x:x+w/2,y:y+h,w:w,h:20,angle:0}); walls.push({x:x,y:y+h/2,w:h,h:20,angle:Math.PI/2}); walls.push({x:x+w,y:y+h/2,w:h,h:20,angle:Math.PI/2}); }
     function setBuildTool(n) { buildTool=n; document.querySelectorAll('.tool-btn').forEach((b,i)=>b.classList.toggle('active',i===n)); }
-    function finishRace() {
-        player.finished = true;
-        let rank = 1; bots.forEach(b => { if(b.lap > 3) rank++; });
-        let reward = rank===1?500 : (rank===2?300:100);
-        user.points += reward;
-        let tokenMsg = document.getElementById('tokenReward');
-        if(rank === 1) { user.mergeTokens++; tokenMsg.style.display = 'block'; } else { tokenMsg.style.display = 'none'; }
-        saveUser();
-        document.getElementById('finishRank').innerText = rank + (rank===1?"st":rank===2?"nd":rank===3?"rd":"th") + " Place";
-        document.getElementById('finishPoints').innerText = reward;
-        showMenu('finishMenu');
-    }
+    function finishRace() { player.finished = true; let rank = 1; bots.forEach(b => { if(b.lap > 3) rank++; }); let reward = rank===1?500 : (rank===2?300:100); user.points += reward; if(rank === 1) { user.mergeTokens++; document.getElementById('tokenReward').style.display = 'block'; } else { document.getElementById('tokenReward').style.display = 'none'; } saveUser(); document.getElementById('finishRank').innerText = rank + (rank===1?"st":rank===2?"nd":rank===3?"rd":"th") + " Place"; document.getElementById('finishPoints').innerText = reward; showMenu('finishMenu'); }
     
-    // Initial UI Sync
     updateShipSwitcherUI();
 </script>
 </body>
