@@ -2,13 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: UNLIMITED</title>
+    <title>Stellar Drift: Tactical Map</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; }
         canvas { display: block; }
         
         #ui, #hud-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
         .menu-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; pointer-events: none; z-index: 20; }
+        
+        /* BIG MAP STYLES */
+        #bigMapOverlay { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(5, 10, 20, 0.95); z-index: 150; display: none; 
+            pointer-events: auto; backdrop-filter: blur(5px);
+        }
+        #bigMapContainer { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .map-header { position: absolute; top: 20px; color: #00d2ff; font-size: 24px; font-weight: bold; text-shadow: 0 0 10px #00d2ff; pointer-events: none; }
+        .map-instr { position: absolute; bottom: 30px; color: #aaa; font-size: 14px; pointer-events: none; }
         
         .menu-box { pointer-events: auto; background: rgba(16, 20, 35, 0.95); padding: 40px; border: 2px solid #00d2ff; text-align: center; border-radius: 12px; display: none; box-shadow: 0 0 30px rgba(0, 210, 255, 0.2); min-width: 300px; }
         .visible { display: block; }
@@ -24,6 +34,7 @@
         .coord-box { color: #00ff00; font-family: monospace; margin-top: 10px; }
         .charge-box { margin-top: 10px; color: #00ffff; display: none; font-size: 24px; text-shadow: 0 0 10px cyan; font-style: italic; }
         .speed-box { margin-top: 10px; color: #ff0055; font-size: 20px; font-weight: 900; }
+        .waypoint-box { margin-top: 10px; color: #00ff00; display: none; }
 
         #chatContainer { position: absolute; bottom: 80px; left: 20px; width: 300px; pointer-events: auto; z-index: 100; display: none; }
         #chatMessages { height: 150px; overflow-y: auto; background: rgba(0,0,0,0.6); border: 1px solid #444; padding: 10px; list-style: none; margin: 0; color: #ddd; font-size: 13px; }
@@ -48,6 +59,14 @@
 
 <canvas id="gameCanvas"></canvas>
 
+<div id="bigMapOverlay">
+    <div id="bigMapContainer">
+        <div class="map-header">TACTICAL MAP</div>
+        <canvas id="bigMapCanvas"></canvas>
+        <div class="map-instr">CLICK to Set Waypoint | Press [M] to Close</div>
+    </div>
+</div>
+
 <div id="hud-layer">
     <div id="topRoomDisplay" class="room-display" style="position:absolute; top:20px; right:20px; color:#aaa; font-weight:bold;"></div>
 
@@ -57,6 +76,7 @@
         <div class="coord-box">POS: <span id="coordDisplay">0, 0</span></div>
         <div class="speed-box">VEL: <span id="speedDisplay">0</span></div>
         <div id="chargeUI" class="charge-box">IMPULSE CHARGE: <span id="chargeVal">0x</span></div>
+        <div id="waypointUI" class="waypoint-box">WAYPOINT DIST: <span id="wpDist">0</span></div>
         <div style="margin-top:10px;">RANK: <span id="rankDisplay">1/4</span></div>
     </div>
 
@@ -78,7 +98,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Unlimited Impulse Update</p>
+        <p>Tactical Map Update</p>
         <button onclick="setupSinglePlayer()">Single Player</button>
         <button onclick="showMenu('multiplayerMenu')">Race Multiplayer</button>
         <br><button class="gold" onclick="findOpenWorldGame()">OPEN WORLD ONLINE</button><br>
@@ -131,7 +151,13 @@
 <script>
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    const mmCtx = document.getElementById('minimapCanvas').getContext('2d');
+    const mmCanvas = document.getElementById('minimapCanvas');
+    const mmCtx = mmCanvas.getContext('2d');
+    
+    // BIG MAP Setup
+    const bmCanvas = document.getElementById('bigMapCanvas');
+    const bmCtx = bmCanvas.getContext('2d');
+    
     const socket = io();
 
     let width, height, gameState = 'menu', roomCode = null, isHost = false, gameMode = 'race';
@@ -142,6 +168,10 @@
     let cameraZoom = 1.0;
     let targetZoom = 1.0;
     let screenShake = 0;
+    
+    // MAP VARIABLES
+    let isBigMapOpen = false;
+    let waypoint = null; // {x, y}
     
     let loadedObjectIds = new Set();
     let currentBuildTool = 0; 
@@ -161,7 +191,14 @@
     
     let keys = { up: false, down: false, left: false, right: false, shift: false, turbo: false };
 
-    function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
+    function resize() { 
+        width = canvas.width = window.innerWidth; 
+        height = canvas.height = window.innerHeight;
+        
+        // Resize big map canvas to fill overlay but keep margin
+        bmCanvas.width = window.innerWidth * 0.9;
+        bmCanvas.height = window.innerHeight * 0.8;
+    }
     window.addEventListener('resize', resize);
     resize();
 
@@ -169,10 +206,32 @@
     
     window.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
 
+    // Main Game Mouse Click
     window.addEventListener('mousedown', (e) => {
+        if(isBigMapOpen) {
+            // Big Map Click Logic
+            const rect = bmCanvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            
+            // Convert screen click to world coordinates for waypoint
+            // Map Scale logic mirrors render: Center is Player
+            let mapScale = 0.05; // Fixed scale for big map
+            let cx = bmCanvas.width / 2;
+            let cy = bmCanvas.height / 2;
+            
+            // Formula: screen = (world - player) * scale + center
+            // Inverse: world = (screen - center) / scale + player
+            let worldX = (clickX - cx) / mapScale + player.x;
+            let worldY = (clickY - cy) / mapScale + player.y;
+            
+            waypoint = { x: worldX, y: worldY };
+            return;
+        }
+
         if(gameState === 'openworld' && currentBuildTool > 0 && !player.dead) {
             if(e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
-            const worldX = camera.x + (mouseX - width/2)/cameraZoom + width/2; // Fix mouse coords for zoom
+            const worldX = camera.x + (mouseX - width/2)/cameraZoom + width/2; 
             const worldY = camera.y + (mouseY - height/2)/cameraZoom + height/2;
             let w = 100, h = 20;
             if(currentBuildTool === 2) { w = 400; h = 40; }
@@ -192,6 +251,13 @@
 
     window.addEventListener('keydown', (e) => {
         if(document.activeElement === chatInput) return;
+        
+        // MAP TOGGLE
+        if(e.code === 'KeyM') {
+            isBigMapOpen = !isBigMapOpen;
+            document.getElementById('bigMapOverlay').style.display = isBigMapOpen ? 'block' : 'none';
+        }
+
         if(e.key === 'ArrowUp' || e.code === 'KeyW') keys.up = true;
         if(e.key === 'ArrowDown' || e.code === 'KeyS') keys.down = true;
         if(e.key === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
@@ -235,6 +301,16 @@
             document.getElementById('chargeVal').innerText = mult + "x IMPULSE";
         } else {
             document.getElementById('chargeUI').style.display = 'none';
+        }
+
+        // Waypoint UI
+        if(waypoint) {
+            document.getElementById('waypointUI').style.display = 'block';
+            let dist = Math.hypot(waypoint.x - player.x, waypoint.y - player.y);
+            document.getElementById('wpDist').innerText = Math.round(dist) + "m";
+            if(dist < 200) waypoint = null; // Reached
+        } else {
+            document.getElementById('waypointUI').style.display = 'none';
         }
 
         if(gameMode === 'openworld' && !player.dead) document.getElementById('buildToolbar').style.display = 'block';
@@ -285,7 +361,11 @@
             updateHazards();
             updateBots();
             updateCamera();
-            drawMinimap();
+            
+            // Render Both Maps
+            drawMap(mmCtx, 200, 200, 0.01, false); // Small HUD Map
+            if(isBigMapOpen) drawMap(bmCtx, bmCanvas.width, bmCanvas.height, 0.05, true); // Big Map
+
             updateUI();
         }
         if(gameState !== 'menu' && gameState !== 'lobby') drawGame();
@@ -302,17 +382,10 @@
         let shakeX = (Math.random() - 0.5) * screenShake * 4;
         let shakeY = (Math.random() - 0.5) * screenShake * 4;
         
-        // 1. Zoom Logic (Dynamic FOV - NO LIMITS)
         let speed = Math.hypot(player.vx, player.vy);
-        
-        // Calculate target zoom based on speed. 
-        // Normal speed is ~10. Extreme speed is 100+.
-        // Formula: 1.0 down to 0.2
         targetZoom = Math.max(0.2, 1.0 - (speed * 0.005));
-        
         cameraZoom += (targetZoom - cameraZoom) * 0.05;
 
-        // 2. Lead Logic
         let leadX = player.vx * 20;
         let leadY = player.vy * 20;
         let targetX = player.x - width/2 + leadX;
@@ -321,22 +394,16 @@
         camera.x += (targetX - camera.x) * 0.1;
         camera.y += (targetY - camera.y) * 0.1;
 
-        // 3. HARD CLAMP (Ship Must Be On Screen)
-        // Calculate the visible world bounds
         let visibleW = width / cameraZoom;
         let visibleH = height / cameraZoom;
         let padding = 150; 
 
-        // Clamp Left/Right
         if (player.x < camera.x + padding) camera.x = player.x - padding;
         if (player.x > camera.x + visibleW - padding) camera.x = player.x - visibleW + padding;
-        // Clamp Top/Bottom
         if (player.y < camera.y + padding) camera.y = player.y - padding;
         if (player.y > camera.y + visibleH - padding) camera.y = player.y - visibleH + padding;
 
-        // Add shake
-        camera.x += shakeX;
-        camera.y += shakeY;
+        camera.x += shakeX; camera.y += shakeY;
     }
 
     function updatePlayerPhysics() {
@@ -345,12 +412,10 @@
     }
 
     function handlePhysics(obj, isPlayer) {
-        // Base Stats
         let maxSpeed = isPlayer ? getPlayerMaxSpeed() : (8 + stats.speedLvl);
         let accel = isPlayer ? getPlayerAccel() : 0.35; 
         let friction = 0.96;
 
-        // Player Controls
         if (isPlayer) {
             if (keys.turbo) { maxSpeed *= 2.5; accel *= 3.0; screenShake = Math.max(screenShake, 3.0); createParticle(obj.x, obj.y, obj.angle + Math.PI, '#00ffff'); }
             if (keys.shift) { friction = 0.995; screenShake = Math.max(screenShake, 1.5); }
@@ -361,44 +426,30 @@
                 obj.vx += Math.cos(obj.angle) * accel;
                 obj.vy += Math.sin(obj.angle) * accel;
             }
-        } 
-        else {
-            // BOT AI
+        } else {
             if(obj.finished) return;
             if(obj.orbitingPlanet) obj.orbitTime = (obj.orbitTime || 0) + 1; else obj.orbitTime = 0;
-
             let target = track[obj.currentPlanetIndex];
             if(target) {
                 let tx = target.x; let ty = target.y;
                 let targetAngle = Math.atan2(ty - obj.y, tx - obj.x);
-
-                if(obj.orbitTime > 120) { 
-                    targetAngle = Math.atan2(ty - obj.y, tx - obj.x);
-                    obj.slingshotCharge = 4.0; obj.targetCharge = 0; 
-                } 
-                
+                if(obj.orbitTime > 120) { targetAngle = Math.atan2(ty - obj.y, tx - obj.x); obj.slingshotCharge = 4.0; obj.targetCharge = 0; } 
                 let diff = targetAngle - obj.angle;
                 while (diff < -Math.PI) diff += Math.PI * 2;
                 while (diff > Math.PI) diff -= Math.PI * 2;
                 obj.angle += diff * 0.1;
-
-                obj.vx += Math.cos(obj.angle) * accel;
-                obj.vy += Math.sin(obj.angle) * accel;
+                obj.vx += Math.cos(obj.angle) * accel; obj.vy += Math.sin(obj.angle) * accel;
             }
         }
 
-        // --- GRAVITY & BOUNCY PLANETS ---
         let inGravity = false;
         track.forEach(p => {
             let dx = p.x - obj.x; let dy = p.y - obj.y;
             let dist = Math.sqrt(dx*dx + dy*dy);
             let angleToPlanet = Math.atan2(dy, dx);
-
-            // COLLISION: BOUNCE
             if(dist < p.radius + 10) {
-                if(p.isFinish) {
-                    if(isPlayer) finishRace(); else obj.finished = true;
-                } else {
+                if(p.isFinish) { if(isPlayer) finishRace(); else obj.finished = true; } 
+                else {
                     let normalX = Math.cos(angleToPlanet); let normalY = Math.sin(angleToPlanet);
                     obj.x = p.x - normalX * (p.radius + 12); obj.y = p.y - normalY * (p.radius + 12);
                     let dot = obj.vx * normalX + obj.vy * normalY;
@@ -406,105 +457,47 @@
                     if(isPlayer) { screenShake = 10; createParticle(obj.x, obj.y, angleToPlanet, '#fff'); }
                 }
             }
-
-            // GRAVITY WELL
             if(dist < p.radius + 450) {
-                inGravity = true;
-                obj.orbitingPlanet = p;
-                
+                inGravity = true; obj.orbitingPlanet = p;
                 if(obj.boostTimer <= 0) {
                     let g = 2500 / (dist * dist);
                     obj.vx += dx * g * 0.01; obj.vy += dy * g * 0.01;
                     let tx = -dy; let ty = dx; let tLen = Math.sqrt(tx*tx + ty*ty);
                     obj.vx += (tx / tLen) * 0.45; obj.vy += (ty / tLen) * 0.45;
                 }
-
                 let speed = Math.hypot(obj.vx, obj.vy);
-                if(speed > 5) {
-                    if(!obj.slingshotCharge) obj.slingshotCharge = 0.0;
-                    obj.slingshotCharge += 0.03;
-                    // --- LIMITS REMOVED ---
-                    // No cap on charge. It grows infinitely.
-                }
+                if(speed > 5) { if(!obj.slingshotCharge) obj.slingshotCharge = 0.0; obj.slingshotCharge += 0.03; }
             }
         });
 
-        // --- UNLIMITED IMPULSE LAUNCH LOGIC ---
         if(!inGravity && obj.orbitingPlanet) {
-            // We just left gravity. Check charge.
             if(obj.slingshotCharge >= 1.0) {
-                
-                // MULTIPLIER UNLEASHED
-                // 1.0 charge = +100% speed. 10.0 charge = +1000% speed.
                 let multiplier = 1.0 + obj.slingshotCharge; 
-                
-                // INSTANT IMPULSE
-                obj.vx *= multiplier;
-                obj.vy *= multiplier;
-                
-                // Set "Frictionless" timer
+                obj.vx *= multiplier; obj.vy *= multiplier;
                 let wholeSecs = Math.floor(obj.slingshotCharge);
                 obj.boostTimer = wholeSecs * 60; 
-
-                if(isPlayer) {
-                    screenShake = 40 + (wholeSecs * 10);
-                    addChatMessage("System", `IMPULSE x${multiplier.toFixed(1)}`, true);
-                    for(let i=0; i<30; i++) createParticle(obj.x, obj.y, Math.random()*Math.PI*2, '#00ffff');
-                }
+                if(isPlayer) { screenShake = 40 + (wholeSecs * 10); addChatMessage("System", `IMPULSE x${multiplier.toFixed(1)}`, true); for(let i=0; i<30; i++) createParticle(obj.x, obj.y, Math.random()*Math.PI*2, '#00ffff'); }
             }
-            obj.orbitingPlanet = null;
-            obj.slingshotCharge = 0;
-            if(!isPlayer) obj.targetCharge = (Math.random() * 2) + 1.0; 
+            obj.orbitingPlanet = null; obj.slingshotCharge = 0; if(!isPlayer) obj.targetCharge = (Math.random() * 2) + 1.0; 
         }
 
-        // --- BOOST STATE ---
-        if(obj.boostTimer > 0) {
-            obj.boostTimer--;
-            friction = 1.0; // Space glide
-            if(Math.random() < 0.5) createParticle(obj.x, obj.y, Math.random()*Math.PI*2, '#00ffff');
-        } else {
-            // Speed Cap (Only when not boosting)
-            let speed = Math.hypot(obj.vx, obj.vy);
-            if(speed > maxSpeed) {
-                let r = maxSpeed/speed; obj.vx*=r; obj.vy*=r;
-            }
-        }
+        if(obj.boostTimer > 0) { obj.boostTimer--; friction = 1.0; if(Math.random() < 0.5) createParticle(obj.x, obj.y, Math.random()*Math.PI*2, '#00ffff'); } 
+        else { let speed = Math.hypot(obj.vx, obj.vy); if(speed > maxSpeed) { let r = maxSpeed/speed; obj.vx*=r; obj.vy*=r; } }
 
-        // Wall Collision
         walls.forEach(w => {
             let dx = obj.x - w.x; let dy = obj.y - w.y;
             let localX = dx * Math.cos(-w.angle) - dy * Math.sin(-w.angle);
             let localY = dx * Math.sin(-w.angle) + dy * Math.cos(-w.angle);
             if(Math.abs(localX) < w.w/2 && Math.abs(localY) < w.h/2) {
-                obj.vx *= -1.2; obj.vy *= -1.2;
-                obj.x += obj.vx * 3; obj.y += obj.vy * 3;
+                obj.vx *= -1.2; obj.vy *= -1.2; obj.x += obj.vx * 3; obj.y += obj.vy * 3;
                 if(isPlayer) screenShake = 20;
             }
         });
-
-        obj.vx *= friction; 
-        obj.vy *= friction;
-        obj.x += obj.vx; 
-        obj.y += obj.vy;
+        obj.vx *= friction; obj.vy *= friction; obj.x += obj.vx; obj.y += obj.vy;
     }
 
-    function updateBots() {
-        if(roomCode) return;
-        bots.forEach(b => { handlePhysics(b, false); });
-    }
-
-    function checkCheckpoints(entity) {
-        if (track.length > 0) {
-            let target = track[entity.currentPlanetIndex];
-            let dist = Math.hypot(entity.x - target.x, entity.y - target.y);
-            if (dist < target.radius + 600) {
-                if (entity.currentPlanetIndex < track.length - 1) {
-                    entity.currentPlanetIndex++;
-                    updateUI();
-                }
-            }
-        }
-    }
+    function updateBots() { if(roomCode) return; bots.forEach(b => { handlePhysics(b, false); }); }
+    function checkCheckpoints(entity) { if (track.length > 0) { let target = track[entity.currentPlanetIndex]; let dist = Math.hypot(entity.x - target.x, entity.y - target.y); if (dist < target.radius + 600) { if (entity.currentPlanetIndex < track.length - 1) { entity.currentPlanetIndex++; updateUI(); } } } }
 
     function updateHazards() {
         hazards.forEach(h => {
@@ -517,52 +510,105 @@
         });
     }
 
-    function crashGame(reason) {
-        player.dead = true;
-        screenShake = 50; 
-        for(let i=0; i<30; i++) createParticle(player.x, player.y, Math.random()*Math.PI*2, '#ff4400');
-        document.getElementById('crashReason').innerText = reason;
-        setTimeout(() => showMenu('crashMenu'), 1000);
-    }
+    function crashGame(reason) { player.dead = true; screenShake = 50; for(let i=0; i<30; i++) createParticle(player.x, player.y, Math.random()*Math.PI*2, '#ff4400'); document.getElementById('crashReason').innerText = reason; setTimeout(() => showMenu('crashMenu'), 1000); }
+    function finishRace() { gameState = 'finished'; stats.points += 200; localStorage.setItem('rr_points', stats.points); updateUI(); showMenu('finishMenu'); }
+    function respawnPlayer() { let spawnX = 0, spawnY = 0; if(spawnPoints.length > 0) { const pick = spawnPoints[Math.floor(Math.random() * spawnPoints.length)]; spawnX = pick.x; spawnY = pick.y; } player.x = spawnX; player.y = spawnY; player.vx = 0; player.vy = 0; player.dead = false; screenShake = 0; player.slingshotCharge = 0.0; player.boostTimer = 0; showMenu(null); }
+    function createParticle(x, y, angle, color) { particles.push({x: x - Math.cos(angle)*20, y: y - Math.sin(angle)*20, vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2, life: 1.0, color: color}); }
 
-    function finishRace() {
-        gameState = 'finished';
-        stats.points += 200; 
-        localStorage.setItem('rr_points', stats.points);
-        updateUI();
-        showMenu('finishMenu');
-    }
+    // --- NEW UNIFIED MAP SYSTEM ---
+    function drawMap(targetCtx, w, h, scale, isBig) {
+        // Clear background
+        targetCtx.fillStyle = isBig ? 'rgba(0,0,0,0.5)' : 'rgba(0, 20, 40, 0.9)'; 
+        targetCtx.fillRect(0, 0, w, h);
+        
+        // Grid on Big Map
+        if(isBig) {
+            targetCtx.strokeStyle = 'rgba(0, 210, 255, 0.2)';
+            targetCtx.lineWidth = 1;
+            targetCtx.beginPath();
+            for(let x=0; x<w; x+=50) { targetCtx.moveTo(x,0); targetCtx.lineTo(x,h); }
+            for(let y=0; y<h; y+=50) { targetCtx.moveTo(0,y); targetCtx.lineTo(w,y); }
+            targetCtx.stroke();
+        }
 
-    function respawnPlayer() {
-        let spawnX = 0, spawnY = 0;
-        if(spawnPoints.length > 0) { const pick = spawnPoints[Math.floor(Math.random() * spawnPoints.length)]; spawnX = pick.x; spawnY = pick.y; }
-        player.x = spawnX; player.y = spawnY; player.vx = 0; player.vy = 0;
-        player.dead = false; screenShake = 0; player.slingshotCharge = 0.0; player.boostTimer = 0; showMenu(null);
-    }
+        let cx = w / 2;
+        let cy = h / 2;
 
-    function createParticle(x, y, angle, color) {
-        particles.push({x: x - Math.cos(angle)*20, y: y - Math.sin(angle)*20, vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2, life: 1.0, color: color});
-    }
+        // Render Entity Helper
+        const renderDot = (ex, ey, color, size) => {
+            let mx = (ex - player.x) * scale + cx;
+            let my = (ey - player.y) * scale + cy;
+            // Only draw if inside canvas bounds (plus a bit)
+            if(mx > -10 && mx < w+10 && my > -10 && my < h+10) {
+                targetCtx.fillStyle = color;
+                targetCtx.beginPath();
+                targetCtx.arc(mx, my, size, 0, Math.PI*2);
+                targetCtx.fill();
+            }
+        };
 
-    function drawMinimap() {
-        mmCtx.fillStyle = 'rgba(0, 20, 40, 0.9)'; mmCtx.fillRect(0, 0, 200, 200);
-        let cx = 100, cy = 100, scale = 0.01;
-        spawnPoints.forEach(sp => { let mx = (sp.x - player.x) * scale + cx; let my = (sp.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = '#00ff00'; mmCtx.beginPath(); mmCtx.arc(mx, my, 3, 0, Math.PI*2); mmCtx.fill(); }});
-        track.forEach(p => { let mx = (p.x - player.x) * scale + cx; let my = (p.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = p.isFinish ? '#ffd700' : p.color; mmCtx.beginPath(); mmCtx.arc(mx, my, 4, 0, Math.PI*2); mmCtx.fill(); }});
-        walls.forEach(w => { let mx = (w.x - player.x) * scale + cx; let my = (w.y - player.y) * scale + cy; if(Math.hypot(mx-cx, my-cy) < 100) { mmCtx.fillStyle = '#fff'; mmCtx.fillRect(mx-2, my-2, 4, 4); }});
-        mmCtx.save(); mmCtx.translate(cx, cy); mmCtx.rotate(player.angle); mmCtx.fillStyle = '#00ffff'; mmCtx.beginPath(); mmCtx.moveTo(5, 0); mmCtx.lineTo(-4, 3); mmCtx.lineTo(-4, -3); mmCtx.fill(); mmCtx.restore();
+        // Draw Static Objects
+        spawnPoints.forEach(sp => renderDot(sp.x, sp.y, '#00ff00', isBig?6:3));
+        track.forEach(p => renderDot(p.x, p.y, p.isFinish ? '#ffd700' : p.color, isBig ? (p.radius*scale) : 4));
+        
+        // Draw Walls
+        walls.forEach(wall => {
+            let mx = (wall.x - player.x) * scale + cx;
+            let my = (wall.y - player.y) * scale + cy;
+            if(mx > -50 && mx < w+50 && my > -50 && my < h+50) {
+                targetCtx.save();
+                targetCtx.translate(mx, my);
+                targetCtx.rotate(wall.angle);
+                targetCtx.fillStyle = '#fff';
+                targetCtx.fillRect(-wall.w*scale/2, -wall.h*scale/2, wall.w*scale, wall.h*scale);
+                targetCtx.restore();
+            }
+        });
+
+        // Draw Waypoint
+        if(waypoint) {
+            let wx = (waypoint.x - player.x) * scale + cx;
+            let wy = (waypoint.y - player.y) * scale + cy;
+            // Draw Target Icon
+            targetCtx.strokeStyle = '#00ff00';
+            targetCtx.lineWidth = 2;
+            targetCtx.beginPath();
+            targetCtx.moveTo(wx-10, wy); targetCtx.lineTo(wx+10, wy);
+            targetCtx.moveTo(wx, wy-10); targetCtx.lineTo(wx, wy+10);
+            targetCtx.stroke();
+            targetCtx.beginPath(); targetCtx.arc(wx, wy, 8, 0, Math.PI*2); targetCtx.stroke();
+        }
+
+        // Draw Opponents (Red Dots)
+        for (let id in opponents) {
+            if(id !== socket.id) {
+                renderDot(opponents[id].x, opponents[id].y, '#ff4444', isBig ? 5 : 3);
+            }
+        }
+        
+        // Draw Bots (Purple)
+        bots.forEach(b => {
+             renderDot(b.x, b.y, '#aa00ff', isBig ? 5 : 3);
+        });
+
+        // Draw Player (Center Arrow)
+        targetCtx.save();
+        targetCtx.translate(cx, cy);
+        targetCtx.rotate(player.angle);
+        targetCtx.fillStyle = '#00ffff';
+        targetCtx.beginPath();
+        targetCtx.moveTo(isBig?10:5, 0);
+        targetCtx.lineTo(isBig?-8:-4, isBig?6:3);
+        targetCtx.lineTo(isBig?-8:-4, isBig?-6:-3);
+        targetCtx.fill();
+        targetCtx.restore();
     }
 
     function drawGame() {
         ctx.save();
-        
-        // 1. Center the context
         ctx.translate(width/2, height/2);
-        // 2. Apply Zoom
         ctx.scale(cameraZoom, cameraZoom);
-        // 3. Move back to top-left
         ctx.translate(-width/2, -height/2);
-        // 4. Translate Camera
         ctx.translate(-camera.x, -camera.y);
 
         ctx.fillStyle = 'white'; for(let i=0; i<100; i++) ctx.fillRect(((i*137)%3000 + player.x*0.1), ((i*94)%3000 + player.y*0.1), 2, 2);
@@ -583,6 +629,26 @@
             ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h); ctx.lineWidth = 2; ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h);
             ctx.restore();
         });
+
+        // Waypoint World Guide
+        if(waypoint) {
+            ctx.strokeStyle = "rgba(0, 255, 0, 0.3)";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([20, 20]);
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y);
+            ctx.lineTo(waypoint.x, waypoint.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            ctx.beginPath();
+            ctx.arc(waypoint.x, waypoint.y, 100, 0, Math.PI*2);
+            ctx.strokeStyle = "#00ff00";
+            ctx.stroke();
+            ctx.fillStyle = "#00ff00";
+            ctx.font = "40px Arial";
+            ctx.fillText("WAYPOINT", waypoint.x - 100, waypoint.y - 120);
+        }
 
         hazards.forEach(h => {
             if(h.type === 'blackhole') { ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(Date.now() / 200); ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI*2); ctx.fillStyle = 'black'; ctx.fill(); ctx.strokeStyle = 'purple'; ctx.lineWidth = 4; ctx.stroke(); ctx.restore(); }
