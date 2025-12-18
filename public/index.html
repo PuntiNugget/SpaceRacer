@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Gravity Generation</title>
+    <title>Stellar Drift: Uncontrollable Hyperspeed</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; user-select: none; }
         canvas { display: block; }
@@ -39,6 +39,22 @@
         .hud-stats { position: absolute; top: 20px; left: 20px; font-weight: bold; text-shadow: 0 2px 4px black; pointer-events: none; }
         .fps-counter { position: absolute; top: 10px; right: 10px; font-weight: bold; color: #00ff00; font-family: monospace; font-size: 12px; z-index: 100; pointer-events:none; }
         
+        /* SLINGSHOT ALERTS */
+        #slingshotAlert {
+            position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; display: none;
+        }
+        .sling-text { font-size: 30px; font-weight: 900; color: #fff; text-shadow: 0 0 20px #bf00ff; letter-spacing: 5px; font-style: italic; animation: pulse 0.1s infinite; }
+        .sling-sub { font-size: 16px; color: #ddd; margin-top: 10px; text-shadow: 0 2px 5px black; }
+        
+        #hyperspeedAlert {
+            position: absolute; bottom: 20%; left: 50%; transform: translateX(-50%);
+            font-size: 40px; color: #00ffff; font-weight: 900; font-style: italic;
+            text-shadow: 0 0 20px cyan; display: none; letter-spacing: 10px;
+        }
+
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
         /* SHIP SWITCHER */
         #shipSwitcher {
             position: absolute; top: 50%; right: 20px; transform: translateY(-50%);
@@ -59,15 +75,6 @@
         .locked-slot { color: #555; font-style: italic; }
         .mastered-hud { color: #ffd700; text-shadow: 0 0 5px gold; }
         
-        /* GRAVITY CHARGE BAR */
-        #gravityContainer { 
-            position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%); 
-            width: 300px; text-align: center; display: none; 
-        }
-        #gravityLabel { color: #bf00ff; font-weight: bold; margin-bottom: 5px; text-shadow: 0 0 10px #bf00ff; }
-        #gravityBarBg { width: 100%; height: 10px; background: #220022; border: 1px solid #bf00ff; border-radius: 5px; overflow: hidden; }
-        #gravityBarFill { width: 0%; height: 100%; background: linear-gradient(90deg, #bf00ff, #ff00ff); transition: width 0.1s; }
-
         /* CHAT */
         #chatContainer { position: absolute; bottom: 80px; left: 20px; width: 300px; pointer-events: auto; z-index: 100; display: none; }
         #chatMessages { height: 150px; overflow-y: auto; background: rgba(0,0,0,0.6); border: 1px solid #444; padding: 10px; list-style: none; margin: 0; color: #ddd; font-size: 13px; }
@@ -91,7 +98,6 @@
         .card-name { font-size: 12px; font-weight: bold; margin-top: 8px; }
         .card-bar-bg { width: 80%; height: 6px; background: #222; margin: 5px auto; border-radius:3px; overflow:hidden; }
         .card-fill { height: 100%; transition: width 0.3s; }
-        .status-txt { font-size:10px; margin-top:4px; font-weight:bold; }
 
         /* LOOT ANIMATION */
         #lootOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 200; display: none; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; }
@@ -149,10 +155,12 @@
         <div style="margin-top:10px; font-size:12px; color:#aaa;">POINTS: <span id="hudPoints">0</span></div>
     </div>
 
-    <div id="gravityContainer">
-        <div id="gravityLabel">GRAVITY CHARGE (POTENTIAL ENERGY)</div>
-        <div id="gravityBarBg"><div id="gravityBarFill"></div></div>
+    <div id="slingshotAlert">
+        <div class="sling-text">GRAVITY LOCKED</div>
+        <div class="sling-sub">ACCELERATING EXPONENTIALLY...<br>PRESS [SPACE] TO BREAK ORBIT</div>
     </div>
+    
+    <div id="hyperspeedAlert">HYPERSPEED - CONTROLS DISABLED</div>
 
     <div id="chatContainer">
         <ul id="chatMessages"><li style="color:yellow">System: Online...</li></ul>
@@ -174,7 +182,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Gravity Generation Update</p>
+        <p>Uncontrollable Hyperspeed Update</p>
         <button onclick="setupRace()">Single Player Race</button>
         <button class="gold" onclick="setupOpenWorld()">Open World Online</button>
         <button onclick="showMenu('multiplayerMenu')">Multiplayer Race</button><br>
@@ -253,16 +261,15 @@
     const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a', 'Enter'];
     let konamiIndex = 0;
 
-    // Game Logic
     let gameState = 'menu';
-    let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96, gravityCharge: 0, boostTime: 0 };
+    // New flag: isHyperspeed
+    let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96, isSlingshot:false, isHyperspeed:false, slingCooldown:0 };
     let camera = { x:0, y:0 };
     let bots = [], walls = [], particles = [], planets = [], meteors = [], wormholes = [];
     let waypoint = null, track = [];
-    let keys = { w:false, a:false, s:false, d:false };
+    let keys = { w:false, a:false, s:false, d:false, space:false };
     let buildTool = 0, mouse = { x:0, y:0 }, lastTime = 0;
-
-    // Generation Config
+    
     const MAP_SIZE = 5000;
     const NUM_PLANETS = 15;
     const NUM_METEORS = 50;
@@ -281,6 +288,7 @@
         if(e.key==='s'||e.key==='ArrowDown') keys.s=true;
         if(e.key==='a'||e.key==='ArrowLeft') keys.a=true;
         if(e.key==='d'||e.key==='ArrowRight') keys.d=true;
+        if(e.key===' '||e.key==='Space') keys.space=true;
         if(e.key==='q') useAbility('q');
         if(e.key==='r') useAbility('r');
         if(e.key==='m') toggleBigMap();
@@ -290,18 +298,11 @@
         if(e.key==='s'||e.key==='ArrowDown') keys.s=false;
         if(e.key==='a'||e.key==='ArrowLeft') keys.a=false;
         if(e.key==='d'||e.key==='ArrowRight') keys.d=false;
+        if(e.key===' '||e.key==='Space') keys.space=false;
     });
     window.addEventListener('mousemove', e => { mouse.x=e.clientX; mouse.y=e.clientY; });
     window.addEventListener('mousedown', (e) => {
-        if(document.getElementById('bigMapOverlay').style.display === 'block') {
-            const rect = bmCanvas.getBoundingClientRect();
-            const scale = (MAP_SIZE*2) / bmCanvas.width; // Fixed scale for map click
-            // Map click logic needs to match drawMiniMap scaling, implemented simply here:
-            // For now, simple waypoint relative to player if map is open is tricky.
-            // Let's rely on the player movement.
-            return; 
-        }
-        if(gameState === 'openworld' && buildTool > 0) {
+        if(gameState === 'openworld' && buildTool > 0 && document.getElementById('bigMapOverlay').style.display !== 'block') {
             let wx = camera.x + mouse.x, wy = camera.y + mouse.y;
             let w=100, h=20; if(buildTool===2) { w=400; h=40; } if(buildTool===3) { w=60; h=60; }
             let obj = { x:wx, y:wy, w:w, h:h, angle:player.angle };
@@ -335,25 +336,134 @@
         if(delta > 0) { let fps = Math.round(1000/delta); fpsEl.innerText = "FPS: " + fps; fpsEl.style.color = fps < 30 ? 'red' : '#00ff00'; }
 
         if(gameState !== 'menu') {
+            if(gameState === 'openworld') updateSlingshot();
             updatePhysics();
             if(gameState === 'race') updateRaceLogic();
             updateHazards();
             updateParticles();
-            camera.x += ((player.x - width/2) - camera.x) * 0.1; camera.y += ((player.y - height/2) - camera.y) * 0.1;
-            drawWorld(); drawHUD();
+            
+            // Screen Shake calculation
+            let speed = Math.hypot(player.vx, player.vy);
+            let shake = speed > 20 ? (speed-20)*0.5 : 0;
+            if(shake > 15) shake = 15;
+            let sx = (Math.random()-0.5)*shake; let sy = (Math.random()-0.5)*shake;
+
+            camera.x += ((player.x - width/2) - camera.x) * 0.1; 
+            camera.y += ((player.y - height/2) - camera.y) * 0.1;
+            
+            ctx.save();
+            ctx.translate(sx, sy);
+            drawWorld(); 
+            ctx.restore();
+            
+            drawHUD();
         }
         requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
 
+    // --- SLINGSHOT & HYPERSPEED MECHANIC ---
+    function updateSlingshot() {
+        if(player.slingCooldown > 0) player.slingCooldown--;
+
+        // Only look for planets if we aren't already in hyperspeed or slinging
+        if(player.isHyperspeed) {
+            document.getElementById('hyperspeedAlert').style.display = 'block';
+            return; 
+        } else {
+            document.getElementById('hyperspeedAlert').style.display = 'none';
+        }
+
+        let caught = false;
+        if(player.slingCooldown <= 0) {
+            planets.forEach(p => {
+                let dist = Math.hypot(p.x - player.x, p.y - player.y);
+                // Detection Radius
+                if(dist < p.r + 250) {
+                    if(!player.isSlingshot) {
+                        player.isSlingshot = true; // LOCK ON
+                        addChat("System", "GRAVITY LOCK ESTABLISHED", true);
+                    }
+                    caught = true;
+                    
+                    // SLINGSHOT PHYSICS: EXPONENTIAL SPEED
+                    let dx = player.x - p.x;
+                    let dy = player.y - p.y;
+                    let angle = Math.atan2(dy, dx);
+                    let currentSpeed = Math.hypot(player.vx, player.vy);
+                    
+                    if(currentSpeed < 10) currentSpeed = 10;
+                    currentSpeed *= 1.015; // Exponential gain
+                    if(currentSpeed > 80) currentSpeed = 80; // Cap
+
+                    // Force Circular Orbit Velocity (Clockwise)
+                    let orbitAngle = angle + Math.PI/2;
+                    player.vx = Math.cos(orbitAngle) * currentSpeed;
+                    player.vy = Math.sin(orbitAngle) * currentSpeed;
+
+                    // Pull in
+                    let targetR = p.r + 100;
+                    let rDiff = dist - targetR;
+                    player.x -= Math.cos(angle) * (rDiff * 0.1);
+                    player.y -= Math.sin(angle) * (rDiff * 0.1);
+
+                    player.angle = orbitAngle;
+                    spawnParticle(player.x, player.y, 'magenta', 2);
+                }
+            });
+        }
+
+        if(caught) {
+            document.getElementById('slingshotAlert').style.display = 'block';
+            // BREAK ORBIT = ENTER HYPERSPEED
+            if(keys.space) {
+                player.isSlingshot = false;
+                player.isHyperspeed = true; // TRIGGER NO-CONTROL MODE
+                player.slingCooldown = 120; // 2 seconds before you can grab another planet
+                
+                spawnParticle(player.x, player.y, 'white', 50);
+                addChat("System", "HYPERSPEED ENGAGED - CONTROLS LOCKED", true);
+            }
+        } else {
+            player.isSlingshot = false;
+            document.getElementById('slingshotAlert').style.display = 'none';
+        }
+    }
+
     function updatePhysics() {
         if(player.finished) return;
+        
         let ents = [player, ...bots];
         ents.forEach(ent => {
+            if(ent === player && player.isSlingshot) {
+                ent.x += ent.vx; ent.y += ent.vy;
+                return;
+            }
+
+            // FRICTION LOGIC
             let fric = ent === player ? player.friction : 0.96;
+            
+            // If in hyperspeed, reduce friction so they glide longer
+            if(ent === player && player.isHyperspeed) {
+                fric = 0.992; // Very slippery
+                spawnParticle(player.x, player.y, 'cyan', 2); // Trail
+            } else {
+                ent.friction = 0.96; // Normal friction restoration
+            }
+
             ent.vx *= fric; ent.vy *= fric;
             ent.x += ent.vx; ent.y += ent.vy;
             if(ent.wormholeDelay > 0) ent.wormholeDelay--;
+            
+            // Check Hyperspeed End
+            if(ent === player && player.isHyperspeed) {
+                let s = Math.hypot(ent.vx, ent.vy);
+                if(s < 15) { // Threshold to regain control
+                    player.isHyperspeed = false;
+                    addChat("System", "Hyperspeed Disengaged. Manual Control Restored.", false);
+                }
+            }
+
             let isPhasing = ent === player && (player.active.q > 0 && SHIPS[user.slots.q]?.name === 'Shadow' || player.active.r > 0 && SHIPS[user.slots.r]?.name === 'Shadow');
             if(!isPhasing) {
                 walls.forEach(w => {
@@ -365,14 +475,15 @@
             }
         });
 
+        // CONTROL LOCK CHECK
+        if(player.isSlingshot || player.isHyperspeed) return; 
+
         if(keys.a) player.angle -= 0.07;
         if(keys.d) player.angle += 0.07;
         
         let speed = 0.5;
-        // Nitro or Gravity Boost
-        if((player.active.q>0 && SHIPS[user.slots.q]?.name==='Nitro') || (player.active.r>0 && SHIPS[user.slots.r]?.name==='Nitro') || player.boostTime > 0) {
+        if((player.active.q>0 && SHIPS[user.slots.q]?.name==='Nitro') || (player.active.r>0 && SHIPS[user.slots.r]?.name==='Nitro')) {
             speed = 1.0; spawnParticle(player.x, player.y, 'cyan', 5);
-            if(player.boostTime > 0) player.boostTime--;
         }
 
         if(keys.w) { player.vx += Math.cos(player.angle) * speed; player.vy += Math.sin(player.angle) * speed; if(Math.random()>0.5) spawnParticle(player.x, player.y, 'orange', 1); }
@@ -384,46 +495,6 @@
 
     function updateHazards() {
         if(gameState !== 'openworld') return;
-        player.friction = 0.96; 
-        
-        // PLANETS & SLINGSHOT LOGIC
-        let inGravity = false;
-        let gravBar = document.getElementById('gravityContainer');
-        
-        planets.forEach(p => {
-            let dx = p.x - player.x, dy = p.y - player.y;
-            let dist = Math.hypot(dx, dy);
-            
-            if(dist < p.r + 800) {
-                inGravity = true;
-                player.friction = 0.995; // Extremely slippery for orbit
-                let gravityStrength = 4000 / (dist * 0.8); 
-                let angle = Math.atan2(dy, dx);
-                player.vx += Math.cos(angle) * (gravityStrength / 100);
-                player.vy += Math.sin(angle) * (gravityStrength / 100);
-                spawnParticle(player.x, player.y, 'rgba(191, 0, 255, 0.5)', 1);
-                
-                // Charge Potential Energy
-                if(player.gravityCharge < 300) player.gravityCharge += 1;
-            }
-            if(dist < p.r * 0.6) { player.x = 0; player.y = 0; player.vx = 0; player.vy = 0; player.gravityCharge=0; addChat("System", "Crushed by Planet Core.", false); }
-        });
-
-        // Slingshot Release
-        if(inGravity) {
-            gravBar.style.display = 'block';
-            document.getElementById('gravityBarFill').style.width = (player.gravityCharge/300 * 100) + "%";
-        } else {
-            gravBar.style.display = 'none';
-            if(player.gravityCharge > 0) {
-                // RELEASE ENERGY!
-                player.boostTime = player.gravityCharge * 2; // Convert charge to boost duration
-                addChat("System", "SLINGSHOT BOOST! +" + player.gravityCharge + " Energy", true);
-                spawnParticle(player.x, player.y, 'white', 50);
-                player.gravityCharge = 0;
-            }
-        }
-
         meteors.forEach(m => {
             m.x += m.vx; m.y += m.vy; m.angle += m.spin;
             if(m.x > MAP_SIZE) m.x = -MAP_SIZE; if(m.x < -MAP_SIZE) m.x = MAP_SIZE;
@@ -442,7 +513,7 @@
     }
 
     function useAbility(slot) {
-        if(gameState === 'menu' || player.finished) return;
+        if(gameState === 'menu' || player.finished || player.isSlingshot || player.isHyperspeed) return;
         let shipKey = user.slots[slot];
         if(!shipKey || player.cooldowns[slot] > 0) return;
         let ship = SHIPS[shipKey];
@@ -453,6 +524,7 @@
     }
 
     function switchShipInGame(key) {
+        if(player.isSlingshot || player.isHyperspeed) return;
         if(user.cards[key] < REQ_UNLOCK) { addChat("System", "Ship Locked!", false); return; }
         user.slots.q = key; saveUser(); updateShipSwitcherUI(); addChat("System", "Switched to " + SHIPS[key].name, true); spawnParticle(player.x, player.y, '#ffffff', 20);
     }
@@ -469,7 +541,7 @@
         gameState = 'race'; showMenu(null);
         document.getElementById('hud-layer').style.display='block'; document.getElementById('raceInfo').style.display='block'; document.getElementById('buildToolbar').style.display='none'; document.getElementById('chatContainer').style.display='none'; shipSwitcherEl.style.display = 'none';
         track = [{x:0,y:0}, {x:2000,y:-500}, {x:2000,y:2000}, {x:-500,y:2000}];
-        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:1, finished:false, wormholeDelay:0, friction:0.96, gravityCharge:0, boostTime:0 };
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:1, finished:false, wormholeDelay:0, friction:0.96, isSlingshot:false, isHyperspeed:false, slingCooldown:0 };
         bots = [{ x:0, y:100, vx:0, vy:0, angle:0, speed:0.95, nextCheck:1, lap:1, color:'#ff4444' }, { x:0, y:-100, vx:0, vy:0, angle:0, speed:0.92, nextCheck:1, lap:1, color:'#44ff44' }, { x:0, y:200, vx:0, vy:0, angle:0, speed:0.98, nextCheck:1, lap:1, color:'#ffff00' }];
         walls = []; planets = []; meteors = []; wormholes = [];
         createWallBox(-500, -1000, 3000, 3500); createWallBox(500, 0, 1000, 1500); waypoint = track[1];
@@ -478,15 +550,14 @@
     function setupOpenWorld() {
         gameState = 'openworld'; showMenu(null);
         document.getElementById('hud-layer').style.display='block'; document.getElementById('raceInfo').style.display='none'; document.getElementById('buildToolbar').style.display='block'; document.getElementById('chatContainer').style.display='block'; shipSwitcherEl.style.display = 'flex'; updateShipSwitcherUI();
-        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96, gravityCharge:0, boostTime:0 };
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false, wormholeDelay:0, friction:0.96, isSlingshot:false, isHyperspeed:false, slingCooldown:0 };
         walls = []; bots = []; waypoint = null;
-        generateOpenWorld(); // RANDOM GENERATION
+        generateOpenWorld(); 
         if(socket) socket.emit('joinOpenWorld');
     }
 
     function generateOpenWorld() {
         planets = []; meteors = []; wormholes = [];
-        // Generate Planets
         for(let i=0; i<NUM_PLANETS; i++) {
             planets.push({
                 x: (Math.random()-0.5) * (MAP_SIZE*2),
@@ -494,7 +565,6 @@
                 r: 80 + Math.random() * 100
             });
         }
-        // Generate Meteors
         for(let i=0; i<NUM_METEORS; i++) {
             meteors.push({
                 x: (Math.random()-0.5) * (MAP_SIZE*2),
@@ -503,7 +573,6 @@
                 s: 40+Math.random()*40, angle:Math.random(), spin:(Math.random()-0.5)*0.05
             });
         }
-        // Generate Wormholes
         for(let i=0; i<NUM_WORMHOLES; i++) {
             let x1 = (Math.random()-0.5)*(MAP_SIZE*1.5);
             let y1 = (Math.random()-0.5)*(MAP_SIZE*1.5);
@@ -511,6 +580,30 @@
             let y2 = (Math.random()-0.5)*(MAP_SIZE*1.5);
             wormholes.push({ x:x1, y:y1, tx:x2, ty:y2, color: Math.random()>0.5?'cyan':'orange' });
         }
+    }
+
+    function updateRaceLogic() {
+        if(player.finished) return;
+        let dx = waypoint.x - player.x, dy = waypoint.y - player.y;
+        if(Math.hypot(dx, dy) < 200) {
+            player.nextCheck++;
+            if(player.nextCheck >= track.length) { player.nextCheck = 0; player.lap++; document.getElementById('lapDisplay').innerText = player.lap + "/3"; if(player.lap > 3) finishRace(); }
+            waypoint = track[player.nextCheck];
+        }
+        bots.forEach(b => {
+            let bdx = track[b.nextCheck].x - b.x, bdy = track[b.nextCheck].y - b.y;
+            let bang = Math.atan2(bdy, bdx);
+            let da = bang - b.angle;
+            if(da > Math.PI) da -= Math.PI*2; if(da < -Math.PI) da += Math.PI*2;
+            b.angle += da * 0.1;
+            b.vx += Math.cos(b.angle)*b.speed; b.vy += Math.sin(b.angle)*b.speed;
+            b.vx *= 0.96; b.vy *= 0.96; b.x += b.vx; b.y += b.vy;
+            if(Math.hypot(bdx, bdy) < 200) { b.nextCheck++; if(b.nextCheck >= track.length) { b.nextCheck=0; b.lap++; } }
+        });
+        bots.sort((a,b) => (b.lap*1000 + b.nextCheck*100) - (a.lap*1000 + a.nextCheck*100));
+        let pScore = player.lap*1000 + player.nextCheck*100;
+        let rank = 1; bots.forEach(b => { if((b.lap*1000+b.nextCheck*100) > pScore) rank++; });
+        document.getElementById('posDisplay').innerText = rank + "/" + (bots.length+1);
     }
 
     function drawWorld() {
@@ -526,7 +619,7 @@
         planets.forEach(p => { 
             ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill(); 
             ctx.strokeStyle = '#bf00ff'; ctx.lineWidth=5; ctx.stroke(); 
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 300, 0, Math.PI*2); ctx.strokeStyle = 'rgba(191, 0, 255, 0.2)'; ctx.lineWidth=2; ctx.stroke();
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 250, 0, Math.PI*2); ctx.strokeStyle = 'rgba(191, 0, 255, 0.2)'; ctx.lineWidth=2; ctx.stroke();
         });
         wormholes.forEach(w => { ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(Date.now()/500); ctx.strokeStyle = w.color; ctx.lineWidth=4; ctx.beginPath(); for(let i=0; i<3; i++) { ctx.arc(0,0, 30-i*5, i, Math.PI+i); } ctx.stroke(); ctx.restore(); });
         ctx.fillStyle = '#654321'; meteors.forEach(m => { ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(m.angle); ctx.beginPath(); ctx.arc(0,0, m.s, 0, Math.PI*2); ctx.fill(); ctx.restore(); });
@@ -534,6 +627,8 @@
         ctx.fillStyle = '#555'; ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
         walls.forEach(w => { ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(w.angle); ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h); ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h); ctx.restore(); });
 
+        if(waypoint && gameState === 'race') { ctx.strokeStyle = '#00ff00'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(waypoint.x, waypoint.y, 200, 0, Math.PI*2); ctx.stroke(); }
+        
         bots.forEach(b => drawShip(b.x, b.y, b.angle, b.color, false));
         drawShip(player.x, player.y, player.angle, SHIPS[user.slots.q]?.color||'#fff', true);
         particles.forEach(p => { ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill(); });
@@ -555,26 +650,19 @@
         c.fillStyle = '#000'; c.fillRect(0,0,w,h); 
         let viewScale = w === 180 ? 0.02 : (w / (MAP_SIZE*2)); 
         let cx = w/2, cy = h/2;
-        
-        // If Minimap (w=180), center on player. If Big Map, center on world origin.
         let offsetX = w === 180 ? -player.x * viewScale : 0;
         let offsetY = w === 180 ? -player.y * viewScale : 0;
 
-        // Draw Planets
         planets.forEach(p => {
             let px = p.x * viewScale + cx + offsetX;
             let py = p.y * viewScale + cy + offsetY;
             c.fillStyle = '#bf00ff'; c.beginPath(); c.arc(px, py, 4, 0, Math.PI*2); c.fill();
         });
-        
-        // Draw Wormholes
         wormholes.forEach(wm => {
             let wx = wm.x * viewScale + cx + offsetX;
             let wy = wm.y * viewScale + cy + offsetY;
             c.fillStyle = 'cyan'; c.beginPath(); c.arc(wx, wy, 3, 0, Math.PI*2); c.fill();
         });
-
-        // Draw Meteors (Only on big map to avoid clutter on minimap, or small dots)
         if(w > 200) {
             c.fillStyle = '#654321';
             meteors.forEach(m => {
@@ -583,21 +671,15 @@
                 c.fillRect(mx-1, my-1, 2, 2);
             });
         }
-
-        // Draw Player
         let px = player.x * viewScale + cx + offsetX;
         let py = player.y * viewScale + cy + offsetY;
-        
-        // For minimap, player is always center
         if(w === 180) { px = cx; py = cy; }
-        
         c.fillStyle = '#0f0'; c.beginPath(); c.arc(px,py,3,0,Math.PI*2); c.fill(); 
     }
     
     function drawHUD() { 
         document.getElementById('speedDisplay').innerText = Math.round(Math.hypot(player.vx, player.vy)*10); 
         document.getElementById('hudPoints').innerText = user.points; 
-        document.getElementById('lapDisplay').innerText = player.lap + "/3"; 
         updateSlotUI('q'); updateSlotUI('r'); 
     }
     function updateSlotUI(slot) {
