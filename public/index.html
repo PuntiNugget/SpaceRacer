@@ -2,35 +2,50 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Fixed Modes</title>
+    <title>Stellar Drift: Hangar & Combos</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; user-select: none; }
         canvas { display: block; }
-        
+
         /* UI LAYERS */
         #ui, #hud-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
         .menu-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; pointer-events: none; z-index: 20; }
         
+        /* BIG MAP */
+        #bigMapOverlay { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(5, 10, 20, 0.95); z-index: 150; display: none; 
+            pointer-events: auto; backdrop-filter: blur(5px);
+        }
+        #bigMapContainer { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
         /* MENUS */
-        .menu-box { pointer-events: auto; background: rgba(16, 20, 35, 0.98); padding: 30px; border: 2px solid #00d2ff; text-align: center; border-radius: 12px; display: none; box-shadow: 0 0 30px rgba(0, 210, 255, 0.2); min-width: 350px; }
+        .menu-box { pointer-events: auto; background: rgba(16, 20, 35, 0.98); padding: 30px; border: 2px solid #00d2ff; text-align: center; border-radius: 12px; display: none; box-shadow: 0 0 30px rgba(0, 210, 255, 0.2); min-width: 350px; max-height: 80vh; overflow-y: auto; }
         .visible { display: block; }
 
-        h1 { color: #00d2ff; text-transform: uppercase; margin-top: 0; font-style: italic; }
-        button { background: linear-gradient(45deg, #00d2ff, #0078ff); border: none; padding: 12px 24px; color: #fff; font-weight: bold; cursor: pointer; margin: 8px; border-radius: 4px; text-transform: uppercase; }
+        h1 { color: #00d2ff; text-transform: uppercase; margin-top: 0; font-style: italic; letter-spacing: 2px; }
+        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+        
+        button { background: linear-gradient(45deg, #00d2ff, #0078ff); border: none; padding: 12px 24px; color: #fff; font-weight: bold; cursor: pointer; margin: 8px; border-radius: 4px; text-transform: uppercase; transition: 0.2s; }
         button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0, 210, 255, 0.4); }
         button.secondary { background: #333; color: #aaa; }
         button.gold { background: linear-gradient(45deg, #ffd700, #ffaa00); color: black; }
-        
+        button.purple { background: linear-gradient(45deg, #aa00ff, #5500ff); color: white; }
+
+        input { padding: 10px; background: #111; border: 1px solid #444; color: white; text-align: center; }
+
         /* HUD */
         .hud-stats { position: absolute; top: 20px; left: 20px; font-weight: bold; text-shadow: 0 2px 4px black; pointer-events: none; }
-        .lap-counter { font-size: 30px; color: #ffd700; font-style: italic; }
-        .ability-box { margin-top: 10px; font-size: 14px; color: #aaa; }
+        .ability-row { margin-top: 5px; font-size: 14px; color: #aaa; }
         .ready { color: #00ff00; text-shadow: 0 0 5px #00ff00; }
+        .cooldown { color: orange; }
         
-        /* COUNTDOWN */
-        #countdown { position: absolute; top: 20%; width: 100%; text-align: center; font-size: 100px; font-weight: 900; color: #fff; text-shadow: 0 0 20px #00d2ff; display: none; pointer-events: none; }
+        /* CHAT */
+        #chatContainer { position: absolute; bottom: 80px; left: 20px; width: 300px; pointer-events: auto; z-index: 100; display: none; }
+        #chatMessages { height: 150px; overflow-y: auto; background: rgba(0,0,0,0.6); border: 1px solid #444; padding: 10px; list-style: none; margin: 0; color: #ddd; font-size: 13px; }
+        #chatInput { width: 100%; box-sizing: border-box; margin-top: 5px; text-align: left; background: rgba(0,0,0,0.8); }
 
-        /* BUILD TOOLBAR (Open World Only) */
+        /* BUILD TOOLBAR */
         #buildToolbar {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
             background: rgba(0,0,0,0.8); padding: 10px; border-radius: 8px; border: 1px solid #444;
@@ -40,27 +55,65 @@
         .tool-btn.active { background: #00d2ff; color: #000; border-color: #fff; }
 
         /* HANGAR CARDS */
-        .ship-card { display: inline-block; width: 90px; height: 120px; background: #111; border: 1px solid #444; margin: 5px; border-radius: 6px; position: relative; cursor: pointer; vertical-align: top; }
+        .ship-card { display: inline-block; width: 100px; height: 130px; background: #111; border: 1px solid #444; margin: 5px; border-radius: 6px; position: relative; cursor: pointer; vertical-align: top; transition: 0.1s; }
+        .ship-card:hover { background: #1a1a1a; }
         .ship-card.unlocked { border-color: #00d2ff; background: #081018; }
-        .ship-card.selected { border-color: #ffd700; box-shadow: 0 0 10px #ffd700; }
+        .ship-card.selected { border-color: #ffd700; box-shadow: 0 0 10px #ffd700; transform: scale(1.05); }
+        .card-name { font-size: 12px; font-weight: bold; margin-top: 8px; }
+        .card-bar { width: 80%; height: 4px; background: #333; margin: 5px auto; }
+        .card-fill { height: 100%; background: #00d2ff; }
+
+        /* LOOT ANIMATION */
+        #lootOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 200; display: none; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; }
+        .loot-box { width: 100px; height: 100px; background: gold; margin-bottom: 20px; box-shadow: 0 0 50px gold; animation: shake 0.5s infinite; }
+        @keyframes shake { 0% { transform: rotate(0deg); } 25% { transform: rotate(5deg); } 75% { transform: rotate(-5deg); } 100% { transform: rotate(0deg); } }
     </style>
 </head>
 <body>
 
 <canvas id="gameCanvas"></canvas>
 
+<div id="bigMapOverlay">
+    <div id="bigMapContainer">
+        <div style="color:#00d2ff; font-size:24px; font-weight:bold; margin-bottom:10px;">TACTICAL MAP</div>
+        <canvas id="bigMapCanvas"></canvas>
+        <div style="color:#aaa; font-size:14px; margin-top:10px;">CLICK to Set Waypoint | Press [M] to Close</div>
+    </div>
+</div>
+
+<div id="lootOverlay">
+    <div id="lootBoxVisual" class="loot-box"></div>
+    <h1 id="lootText" style="color:white;">OPENING...</h1>
+    <div id="lootResults" style="display:flex; gap:10px; margin-top:20px;"></div>
+    <button id="lootClose" style="display:none; margin-top:30px;" onclick="closeLoot()">Collect</button>
+</div>
+
 <div id="hud-layer" style="display:none;">
     <div class="hud-stats">
-        <div id="raceInfo">
-            <div class="lap-counter">LAP <span id="lapDisplay">1/3</span></div>
-            <div>POS: <span id="posDisplay">1st</span></div>
+        <div id="raceInfo" style="display:none;">
+            <div style="font-size:30px; color:#ffd700; font-style:italic;">LAP <span id="lapDisplay">1/3</span></div>
+            <div>POS: <span id="posDisplay">1/4</span></div>
         </div>
         <div style="margin-top:10px;">SPEED: <span id="speedDisplay">0</span></div>
-        <div class="ability-box" id="qAbilityUI">[Q] NITRO: <span class="ready">READY</span></div>
-        <div class="ability-box" id="rAbilityUI">[R] -- : LOCKED</div>
+        
+        <div class="ability-row" id="ui-q">
+            [Q] <span id="name-q">NITRO</span>: <span id="status-q" class="ready">READY</span>
+        </div>
+        <div class="ability-row" id="ui-r">
+            [R] <span id="name-r">--</span>: <span id="status-r" class="ready">EMPTY</span>
+        </div>
+        
+        <div style="margin-top:10px; font-size:12px; color:#aaa;">POINTS: <span id="hudPoints">0</span></div>
     </div>
 
-    <div id="countdown">3</div>
+    <div id="chatContainer">
+        <ul id="chatMessages"><li style="color:yellow">System: Online...</li></ul>
+        <input id="chatInput" type="text" placeholder="Press Enter to Chat...">
+    </div>
+
+    <div style="position:absolute; bottom:20px; right:20px; width:180px; height:180px; border-radius:50%; overflow:hidden; border:2px solid #00d2ff; background:#001;">
+        <canvas id="minimapCanvas" width="180" height="180"></canvas>
+    </div>
 
     <div id="buildToolbar">
         <button class="tool-btn active" onclick="setBuildTool(0)">FLY</button>
@@ -73,329 +126,246 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Hangar & Modes Update</p>
-        <button onclick="startRaceMode()">SINGLE PLAYER RACE</button>
-        <button class="gold" onclick="startOpenWorld()">OPEN WORLD (SANDBOX)</button>
+        <p>Hangar & Combos Update</p>
+        
+        <button onclick="setupRace()">Single Player Race</button>
+        <button class="gold" onclick="setupOpenWorld()">Open World Online</button>
+        <button onclick="showMenu('multiplayerMenu')">Multiplayer Race</button>
         <br>
-        <button class="secondary" onclick="showMenu('hangarMenu')">HANGAR / LOOT</button>
+        <button class="purple" onclick="openHangar()">HANGAR & LOOT</button>
     </div>
 
-    <div id="hangarMenu" class="menu-box" style="width:500px;">
+    <div id="hangarMenu" class="menu-box" style="width:600px;">
         <h2>SHIP HANGAR</h2>
-        <p>Points: <span id="hangarPoints" style="color:#00d2ff">0</span></p>
-        <div id="cardContainer" style="margin-bottom:15px;"></div>
-        
-        <div style="border-top:1px solid #333; padding-top:10px;">
-            <h3>MERGE CONFIG</h3>
-            <div style="display:flex; justify-content:center; gap:10px; margin-bottom:10px;">
-                <button id="slot1Btn" onclick="assignSlot(1)">[Q] Primary</button>
-                <button id="slot2Btn" onclick="assignSlot(2)">[R] Secondary</button>
-            </div>
-            <button class="gold" onclick="buyLootBox()">Buy Box (1000pts)</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <div>Points: <span id="hangarPoints" style="color:#00d2ff">0</span></div>
+            <button class="gold" onclick="buyBox()">Buy Box (1000pts)</button>
         </div>
-        <br>
+        
+        <div id="cardContainer" style="text-align:left; margin-bottom:20px; padding-bottom:10px; border-bottom:1px solid #333; overflow-x:auto; white-space:nowrap;">
+            </div>
+
+        <h3>COMBO STATION</h3>
+        <p style="font-size:12px; color:#aaa;">Select a ship above, then click a slot below.</p>
+        <div style="display:flex; justify-content:center; gap:20px; align-items:center; margin-bottom:20px;">
+            <div id="slotQ" onclick="equipTo('q')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">[Q] Primary</div>
+            <div style="font-size:24px;">+</div>
+            <div id="slotR" onclick="equipTo('r')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">[R] Secondary</div>
+        </div>
+
+        <button class="secondary" onclick="saveAndExitHangar()">Save & Back</button>
+    </div>
+
+    <div id="multiplayerMenu" class="menu-box">
+        <h2>Multiplayer Lobby</h2>
+        <button onclick="createRoom()">Create Room</button><br>
+        <input id="roomInput" placeholder="Room Code">
+        <button onclick="joinRoom()">Join</button><br>
         <button class="secondary" onclick="showMenu('mainMenu')">Back</button>
     </div>
-
+    
     <div id="finishMenu" class="menu-box">
         <h1 style="color:#ffd700">FINISHED!</h1>
         <h2 id="finishRank">1st Place</h2>
-        <p>Points Earned: <span id="earnedPoints" style="color:#00ff00">+0</span></p>
-        <button onclick="startRaceMode()">Race Again</button>
+        <p style="color:#00ff00; font-size:20px;">+<span id="finishPoints">0</span> Points</p>
+        <button onclick="setupRace()">Race Again</button>
         <button class="secondary" onclick="showMenu('mainMenu')">Main Menu</button>
     </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
-    // --- SETUP ---
+    // --- GLOBAL SETUP ---
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
+    const mmCanvas = document.getElementById('minimapCanvas');
+    const mmCtx = mmCanvas.getContext('2d');
+    const bmCanvas = document.getElementById('bigMapCanvas');
+    const bmCtx = bmCanvas.getContext('2d');
     
-    // Attempt socket connection, but don't crash if it fails
+    // Socket Handling (Safe Mode)
     let socket;
-    try { socket = io(); } catch(e) { console.log("Socket not found, running local."); }
+    try { socket = io(); } catch(e) { console.log("Offline Mode"); }
 
     let width, height;
-    function resize() { width=canvas.width=window.innerWidth; height=canvas.height=window.innerHeight; }
+    function resize() { 
+        width=canvas.width=window.innerWidth; 
+        height=canvas.height=window.innerHeight; 
+        bmCanvas.width = window.innerWidth * 0.9;
+        bmCanvas.height = window.innerHeight * 0.8;
+    }
     window.addEventListener('resize', resize);
     resize();
 
-    // --- GAME STATE ---
-    let gameState = 'menu'; // menu, race, openworld
-    let isRaceActive = false;
-    let raceTimer = 0;
-    
-    // --- SHIPS ---
+    // --- GAME DATA ---
     const SHIPS = {
-        nitro: { name: "Nitro", color: "#00d2ff", cd: 600, dur: 120 },
-        shadow: { name: "Shadow", color: "#444444", cd: 900, dur: 300 },
-        vision: { name: "Vision", color: "#ff00ff", cd: 900, dur: 0 },
-        dasher: { name: "Dasher", color: "#ffff00", cd: 300, dur: 0 }
+        nitro: { name: "Nitro", color: "#00d2ff", desc: "Speed Boost", cd: 600, dur: 120 },
+        shadow: { name: "Shadow", color: "#444444", desc: "Phase Walls", cd: 900, dur: 300 },
+        vision: { name: "Vision", color: "#ff00ff", desc: "Jam Enemies", cd: 900, dur: 0 },
+        dasher: { name: "Dasher", color: "#ffff00", desc: "Teleport", cd: 300, dur: 0 }
     };
 
-    let user = JSON.parse(localStorage.getItem('drift_user_v2')) || {
-        points: 5000, // Starting points for testing
+    // User State (Persistence)
+    let user = JSON.parse(localStorage.getItem('drift_user_v3')) || {
+        points: 2000,
         cards: { nitro: 10, shadow: 0, vision: 0, dasher: 0 },
         slots: { q: 'nitro', r: null }
     };
+    function saveUser() { localStorage.setItem('drift_user_v3', JSON.stringify(user)); }
 
-    function saveUser() { localStorage.setItem('drift_user_v2', JSON.stringify(user)); }
-
-    // --- ENTITIES ---
-    let player = { x:0, y:0, vx:0, vy:0, angle:0, lap:1, nextCheck:0, finished:false, cooldowns:{q:0, r:0}, active:{q:0, r:0} };
-    let bots = [];
-    let walls = [];
-    let particles = [];
+    // --- GAME VARIABLES ---
+    let gameState = 'menu'; // menu, race, openworld
+    let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false };
+    let camera = { x:0, y:0 };
+    let opponents = {}; // Multiplayer
+    let bots = [];      // Single Player
+    let walls = [], particles = [];
+    let waypoint = null;
+    let track = []; // Checkpoints
     
-    // Race Track Data (Simple Loop)
-    const TRACK_POINTS = [
-        {x:0, y:0}, {x:2000, y:0}, {x:2000, y:2000}, {x:0, y:2000} // A big square
-    ];
-    
-    // --- CONTROLS ---
     let keys = { w:false, a:false, s:false, d:false };
-    let mouse = { x:0, y:0, down:false };
-    let buildTool = 0; // 0=fly, 1=wall, 2=barrier, 3=crate
+    let buildTool = 0; // 0=off, 1=wall, 2=barrier, 3=crate
+    let mouse = { x:0, y:0 };
 
+    // --- INPUT LISTENERS ---
     window.addEventListener('keydown', e => {
-        if(e.key==='w') keys.w=true; if(e.key==='s') keys.s=true;
-        if(e.key==='a') keys.a=true; if(e.key==='d') keys.d=true;
+        if(document.activeElement.tagName === 'INPUT') return;
+        if(e.key==='w'||e.key==='ArrowUp') keys.w=true;
+        if(e.key==='s'||e.key==='ArrowDown') keys.s=true;
+        if(e.key==='a'||e.key==='ArrowLeft') keys.a=true;
+        if(e.key==='d'||e.key==='ArrowRight') keys.d=true;
         if(e.key==='q') useAbility('q');
         if(e.key==='r') useAbility('r');
+        if(e.key==='m') toggleBigMap();
     });
     window.addEventListener('keyup', e => {
-        if(e.key==='w') keys.w=false; if(e.key==='s') keys.s=false;
-        if(e.key==='a') keys.a=false; if(e.key==='d') keys.d=false;
+        if(e.key==='w'||e.key==='ArrowUp') keys.w=false;
+        if(e.key==='s'||e.key==='ArrowDown') keys.s=false;
+        if(e.key==='a'||e.key==='ArrowLeft') keys.a=false;
+        if(e.key==='d'||e.key==='ArrowRight') keys.d=false;
     });
     window.addEventListener('mousemove', e => { mouse.x=e.clientX; mouse.y=e.clientY; });
-    window.addEventListener('mousedown', () => {
-        if(gameState === 'openworld' && buildTool > 0) placeObject();
+    
+    // Building & Waypoints
+    window.addEventListener('mousedown', (e) => {
+        // Big Map Waypoint
+        if(document.getElementById('bigMapOverlay').style.display === 'block') {
+            const rect = bmCanvas.getBoundingClientRect();
+            const scale = 0.05;
+            let wx = (e.clientX - rect.left - bmCanvas.width/2)/scale + player.x;
+            let wy = (e.clientY - rect.top - bmCanvas.height/2)/scale + player.y;
+            waypoint = {x:wx, y:wy};
+            return;
+        }
+        // Building
+        if(gameState === 'openworld' && buildTool > 0) {
+            let wx = camera.x + mouse.x;
+            let wy = camera.y + mouse.y;
+            let w=100, h=20;
+            if(buildTool===2) { w=400; h=40; } // Barrier
+            if(buildTool===3) { w=60; h=60; }  // Crate
+            let obj = { x:wx, y:wy, w:w, h:h, angle:player.angle };
+            walls.push(obj);
+            if(socket) socket.emit('buildObject', obj);
+        }
     });
+
+    // Chat
+    document.getElementById('chatInput').addEventListener('keydown', e => {
+        if(e.key === 'Enter') {
+            let txt = e.target.value;
+            if(!txt) return;
+            addChat("You", txt, true);
+            if(socket) socket.emit('chatMsg', txt);
+            e.target.value = "";
+        }
+    });
+
+    function addChat(user, msg, self) {
+        let ul = document.getElementById('chatMessages');
+        let li = document.createElement('li');
+        li.innerText = `[${user}]: ${msg}`;
+        li.style.color = self ? '#00ffff' : '#ffaaaa';
+        ul.appendChild(li);
+        ul.scrollTop = ul.scrollHeight;
+    }
 
     // --- GAME LOOP ---
     function loop() {
-        ctx.fillStyle = '#050508'; ctx.fillRect(0,0,width,height);
-
-        if(gameState === 'race') updateRace();
-        if(gameState === 'openworld') updateOpenWorld();
-
         if(gameState !== 'menu') {
             updatePhysics();
+            if(gameState === 'race') updateRaceLogic();
             updateParticles();
+            
+            // Camera follow
+            camera.x += ((player.x - width/2) - camera.x) * 0.1;
+            camera.y += ((player.y - height/2) - camera.y) * 0.1;
+
             drawWorld();
-            updateHUD();
+            drawHUD();
         }
         requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
 
-    // --- LOGIC: RACE ---
-    function startRaceMode() {
-        gameState = 'race';
-        showMenu(null);
-        document.getElementById('hud-layer').style.display = 'block';
-        document.getElementById('raceInfo').style.display = 'block';
-        document.getElementById('buildToolbar').style.display = 'none';
-
-        // Reset Player
-        player = { x:0, y:0, vx:0, vy:0, angle:0, lap:1, nextCheck:1, finished:false, cooldowns:{q:0, r:0}, active:{q:0, r:0} };
-        
-        // Reset Bots
-        bots = [
-            { x:0, y:100, vx:0, vy:0, angle:0, color:'#ff4444', speed: 0.95, lap:1, nextCheck:1, finished:false },
-            { x:0, y:-100, vx:0, vy:0, angle:0, color:'#44ff44', speed: 0.92, lap:1, nextCheck:1, finished:false },
-            { x:0, y:200, vx:0, vy:0, angle:0, color:'#ffff00', speed: 0.98, lap:1, nextCheck:1, finished:false }
-        ];
-
-        // Generate Walls based on Track
-        walls = [];
-        // Inner and Outer walls for the square track
-        createWallRect(-200, -200, 2400, 2400); // Outer
-        createWallRect(400, 400, 1200, 1200);   // Inner (Island)
-
-        // Countdown
-        isRaceActive = false;
-        let count = 3;
-        let cdEl = document.getElementById('countdown');
-        cdEl.style.display = 'block';
-        cdEl.innerText = count;
-        
-        let int = setInterval(() => {
-            count--;
-            if(count > 0) cdEl.innerText = count;
-            else if(count === 0) { cdEl.innerText = "GO!"; isRaceActive = true; }
-            else { clearInterval(int); cdEl.style.display = 'none'; }
-        }, 1000);
-    }
-
-    function updateRace() {
-        if(!isRaceActive) return;
-
-        // Bot AI
-        bots.forEach(b => {
-            if(b.finished) { b.vx*=0.9; b.vy*=0.9; return; }
-            
-            let target = TRACK_POINTS[b.nextCheck % TRACK_POINTS.length];
-            let angleTo = Math.atan2(target.y - b.y, target.x - b.x);
-            
-            // Turn towards target
-            let diff = angleTo - b.angle;
-            while(diff < -Math.PI) diff += Math.PI*2;
-            while(diff > Math.PI) diff -= Math.PI*2;
-            b.angle += diff * 0.05;
-
-            // Drive
-            b.vx += Math.cos(b.angle) * 0.4 * b.speed;
-            b.vy += Math.sin(b.angle) * 0.4 * b.speed;
-            
-            // Checkpoint Logic
-            let dist = Math.hypot(target.x - b.x, target.y - b.y);
-            if(dist < 300) {
-                b.nextCheck++;
-                if(b.nextCheck > TRACK_POINTS.length && (b.nextCheck-1)%TRACK_POINTS.length === 0) {
-                    b.lap++;
-                    if(b.lap > 3) b.finished = true;
-                }
-            }
-        });
-
-        // Player Checkpoint Logic
-        let target = TRACK_POINTS[player.nextCheck % TRACK_POINTS.length];
-        let dist = Math.hypot(target.x - player.x, target.y - player.y);
-        
-        // Draw Checkpoint Marker
-        particles.push({x:target.x, y:target.y, vx:0, vy:0, life:2, color:'rgba(0,255,255,0.2)', size:20});
-
-        if(dist < 300) {
-            player.nextCheck++;
-            if(player.nextCheck > TRACK_POINTS.length && (player.nextCheck-1)%TRACK_POINTS.length === 0) {
-                player.lap++;
-                createExplosion(player.x, player.y, '#00ff00', 20);
-                if(player.lap > 3) endRace();
-            }
-        }
-    }
-
-    function endRace() {
-        isRaceActive = false;
-        player.finished = true;
-        
-        // Calculate Rank
-        let rank = 1;
-        bots.forEach(b => { if(b.finished) rank++; });
-
-        let points = rank === 1 ? 500 : (rank === 2 ? 250 : 100);
-        user.points += points;
-        saveUser();
-
-        document.getElementById('finishRank').innerText = rank + (rank===1?"st":rank===2?"nd":rank===3?"rd":"th") + " Place";
-        document.getElementById('earnedPoints').innerText = "+" + points;
-        showMenu('finishMenu');
-    }
-
-    // --- LOGIC: OPEN WORLD ---
-    function startOpenWorld() {
-        gameState = 'openworld';
-        showMenu(null);
-        document.getElementById('hud-layer').style.display = 'block';
-        document.getElementById('raceInfo').style.display = 'none'; // No Laps
-        document.getElementById('buildToolbar').style.display = 'block';
-        
-        // Open World Setup
-        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0} };
-        walls = []; // Clear walls
-        bots = [];  // No race bots
-        
-        // If socket exists, tell server. If not, local only.
-        if(socket) socket.emit('joinOpenWorld');
-    }
-
-    function updateOpenWorld() {
-        // Just standard physics running
-    }
-
-    function placeObject() {
-        // Convert screen mouse to world coords
-        let camX = player.x - width/2;
-        let camY = player.y - height/2;
-        let wx = camX + mouse.x;
-        let wy = camY + mouse.y;
-        
-        let w = 100, h = 20;
-        if(buildTool === 2) { w=300; h=40; } // Barrier
-        if(buildTool === 3) { w=60; h=60; } // Crate
-        
-        let obj = { x:wx, y:wy, w:w, h:h, angle: player.angle };
-        walls.push(obj);
-        
-        // If multiplayer, send to server
-        if(socket) socket.emit('buildObject', obj);
-    }
-
-    function setBuildTool(t) {
-        buildTool = t;
-        let btns = document.querySelectorAll('.tool-btn');
-        btns.forEach((b,i) => b.classList.toggle('active', i===t));
-    }
-
-    // --- PHYSICS & SHARED ---
+    // --- PHYSICS & ABILITIES ---
     function updatePhysics() {
-        let entities = [player, ...bots];
-        
-        entities.forEach(ent => {
-            if(ent.finished) return;
+        if(player.finished) return;
 
+        let ents = [player, ...bots];
+        ents.forEach(ent => {
             // Friction
             ent.vx *= 0.96; ent.vy *= 0.96;
-            
-            // Movement
             ent.x += ent.vx; ent.y += ent.vy;
 
             // Wall Collisions
-            let isPhasing = ent === player && (player.active.q > 0 && SHIPS[user.slots.q]?.name === "Shadow" || player.active.r > 0 && SHIPS[user.slots.r]?.name === "Shadow");
-            
+            let isPhasing = ent === player && (player.active.q > 0 && SHIPS[user.slots.q]?.name === 'Shadow' || player.active.r > 0 && SHIPS[user.slots.r]?.name === 'Shadow');
+
             if(!isPhasing) {
                 walls.forEach(w => {
                     let dx = ent.x - w.x; let dy = ent.y - w.y;
                     let lx = dx * Math.cos(-w.angle) - dy * Math.sin(-w.angle);
                     let ly = dx * Math.sin(-w.angle) + dy * Math.cos(-w.angle);
                     if(Math.abs(lx) < w.w/2 + 15 && Math.abs(ly) < w.h/2 + 15) {
-                        // Bounce
                         ent.vx *= -0.5; ent.vy *= -0.5;
-                        ent.x -= ent.vx * 3; ent.y -= ent.vy * 3;
+                        ent.x -= ent.vx*2; ent.y -= ent.vy*2;
                     }
                 });
             }
         });
 
-        // Player Control
-        if(gameState !== 'menu' && !player.finished) {
-            if(keys.a) player.angle -= 0.07;
-            if(keys.d) player.angle += 0.07;
-            
-            let speed = 0.5;
-            // Boost Checks
-            if(player.active.q > 0 && SHIPS[user.slots.q]?.name === "Nitro") speed = 1.0;
-            if(player.active.r > 0 && SHIPS[user.slots.r]?.name === "Nitro") speed = 1.0;
+        // Player Controls
+        if(keys.a) player.angle -= 0.07;
+        if(keys.d) player.angle += 0.07;
+        
+        let speed = 0.5;
+        // Nitro Check
+        if((player.active.q>0 && SHIPS[user.slots.q]?.name==='Nitro') || (player.active.r>0 && SHIPS[user.slots.r]?.name==='Nitro')) {
+            speed = 1.0;
+            spawnParticle(player.x, player.y, 'cyan', 5);
+        }
 
-            if(keys.w) {
-                player.vx += Math.cos(player.angle) * speed;
-                player.vy += Math.sin(player.angle) * speed;
-                particles.push({x:player.x, y:player.y, vx:-player.vx/2, vy:-player.vy/2, life:10, color: speed>0.6?'cyan':'orange', size:3});
-            }
-            if(keys.s) { player.vx *= 0.9; player.vy *= 0.9; }
+        if(keys.w) {
+            player.vx += Math.cos(player.angle) * speed;
+            player.vy += Math.sin(player.angle) * speed;
+            if(Math.random()>0.5) spawnParticle(player.x, player.y, 'orange', 1);
+        }
+        if(keys.s) { player.vx *= 0.9; player.vy *= 0.9; }
 
-            // Manage Cooldowns
-            if(player.cooldowns.q > 0) player.cooldowns.q--;
-            if(player.cooldowns.r > 0) player.cooldowns.r--;
-            if(player.active.q > 0) player.active.q--;
-            if(player.active.r > 0) player.active.r--;
+        // Cooldown Tick
+        ['q','r'].forEach(slot => {
+            if(player.cooldowns[slot] > 0) player.cooldowns[slot]--;
+            if(player.active[slot] > 0) player.active[slot]--;
+        });
+
+        // Socket Update
+        if(socket && gameState === 'openworld') {
+            socket.emit('playerUpdate', { x:player.x, y:player.y, angle:player.angle });
         }
     }
 
     function useAbility(slot) {
-        if(gameState === 'menu') return;
+        if(gameState === 'menu' || player.finished) return;
         let shipKey = user.slots[slot];
         if(!shipKey || player.cooldowns[slot] > 0) return;
 
@@ -405,57 +375,140 @@
 
         // Instant Effects
         if(ship.name === "Dasher") {
-            player.x += Math.cos(player.angle)*300;
-            player.y += Math.sin(player.angle)*300;
-            createExplosion(player.x, player.y, 'yellow', 20);
+            player.x += Math.cos(player.angle) * 400;
+            player.y += Math.sin(player.angle) * 400;
+            spawnParticle(player.x, player.y, 'yellow', 20);
         }
-        if(ship.name === "Vision" && gameState === 'race') {
-            // Spin bots out
+        if(ship.name === "Vision") {
+            // Jam nearby bots
             bots.forEach(b => {
-                let d = Math.hypot(b.x-player.x, b.y-player.y);
-                if(d < 800) { b.angle += Math.PI; b.vx=0; b.vy=0; }
+                if(Math.hypot(b.x-player.x, b.y-player.y) < 800) {
+                    b.vx = 0; b.vy = 0; b.angle += Math.PI; // Spin out
+                }
             });
+            // Visual
+            spawnParticle(player.x, player.y, 'magenta', 30);
         }
     }
 
-    function createWallRect(x,y,w,h) {
-        // Creates 4 walls to form a box (track boundaries)
-        walls.push({x:x+w/2, y:y, w:w, h:20, angle:0}); // Top
-        walls.push({x:x+w/2, y:y+h, w:w, h:20, angle:0}); // Bottom
-        walls.push({x:x, y:y+h/2, w:h, h:20, angle:Math.PI/2}); // Left
-        walls.push({x:x+w, y:y+h/2, w:h, h:20, angle:Math.PI/2}); // Right
+    // --- GAME MODES ---
+    
+    function setupRace() {
+        gameState = 'race';
+        showMenu(null);
+        document.getElementById('hud-layer').style.display = 'block';
+        document.getElementById('raceInfo').style.display = 'block';
+        document.getElementById('buildToolbar').style.display = 'none';
+        document.getElementById('chatContainer').style.display = 'none';
+
+        // Track: Big Loop
+        track = [{x:0,y:0}, {x:2000,y:-500}, {x:2000,y:2000}, {x:-500,y:2000}];
+        
+        // Reset Player
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:1, finished:false };
+        
+        // Reset Bots
+        bots = [
+            { x:0, y:100, vx:0, vy:0, angle:0, speed:0.95, nextCheck:1, lap:1, color:'#ff4444' },
+            { x:0, y:-100, vx:0, vy:0, angle:0, speed:0.92, nextCheck:1, lap:1, color:'#44ff44' },
+            { x:0, y:200, vx:0, vy:0, angle:0, speed:0.98, nextCheck:1, lap:1, color:'#ffff00' }
+        ];
+
+        // Track Walls
+        walls = [];
+        createWallBox(-500, -1000, 3000, 3500); // Outer Bounds
+        createWallBox(500, 0, 1000, 1500);      // Inner Island
+        
+        // Waypoint to first check
+        waypoint = track[1];
     }
 
-    function updateParticles() {
-        for(let i=particles.length-1; i>=0; i--) {
-            let p = particles[i];
-            p.x += p.vx; p.y += p.vy;
-            p.life--;
-            if(p.life <= 0) particles.splice(i,1);
+    function updateRaceLogic() {
+        // Bots AI
+        bots.forEach(b => {
+            let target = track[b.nextCheck % track.length];
+            let angle = Math.atan2(target.y - b.y, target.x - b.x);
+            // Turn
+            let diff = angle - b.angle;
+            while(diff < -Math.PI) diff += Math.PI*2;
+            while(diff > Math.PI) diff -= Math.PI*2;
+            b.angle += diff * 0.05;
+            // Move
+            b.vx += Math.cos(b.angle) * 0.45 * b.speed;
+            b.vy += Math.sin(b.angle) * 0.45 * b.speed;
+            
+            // Checkpoint
+            if(Math.hypot(target.x-b.x, target.y-b.y) < 300) {
+                b.nextCheck++;
+                if((b.nextCheck-1)%track.length === 0) b.lap++;
+            }
+        });
+
+        // Player Checkpoint
+        let target = track[player.nextCheck % track.length];
+        waypoint = target; // Arrow points to checkpoint
+        if(Math.hypot(target.x - player.x, target.y - player.y) < 300) {
+            player.nextCheck++;
+            if((player.nextCheck-1)%track.length === 0) {
+                player.lap++;
+                spawnParticle(player.x, player.y, '#00ff00', 30);
+                if(player.lap > 3) finishRace();
+            }
         }
     }
 
+    function finishRace() {
+        player.finished = true;
+        let rank = 1;
+        bots.forEach(b => { if(b.lap > 3) rank++; }); // If bot finished before me
+        
+        let reward = rank===1?500 : (rank===2?300:100);
+        user.points += reward;
+        saveUser();
+        
+        document.getElementById('finishRank').innerText = rank + (rank===1?"st":rank===2?"nd":rank===3?"rd":"th") + " Place";
+        document.getElementById('finishPoints').innerText = reward;
+        showMenu('finishMenu');
+    }
+
+    function setupOpenWorld() {
+        gameState = 'openworld';
+        showMenu(null);
+        document.getElementById('hud-layer').style.display = 'block';
+        document.getElementById('raceInfo').style.display = 'none';
+        document.getElementById('buildToolbar').style.display = 'block';
+        document.getElementById('chatContainer').style.display = 'block';
+        
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false };
+        walls = [];
+        bots = [];
+        waypoint = null;
+
+        // Try to join server room
+        if(socket) socket.emit('joinOpenWorld');
+    }
+
+    // --- DRAWING ---
     function drawWorld() {
-        let cx = player.x - width/2;
-        let cy = player.y - height/2;
+        ctx.fillStyle = '#050508'; ctx.fillRect(0,0,width,height);
         
         ctx.save();
-        ctx.translate(-cx, -cy);
+        ctx.translate(-camera.x, -camera.y);
 
         // Grid
         ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
-        let gs = 500;
-        let sx = Math.floor(cx/gs)*gs, sy = Math.floor(cy/gs)*gs;
+        let g=500, sx=Math.floor(camera.x/g)*g, sy=Math.floor(camera.y/g)*g;
         ctx.beginPath();
-        for(let x=sx; x<cx+width; x+=gs) { ctx.moveTo(x,cy); ctx.lineTo(x,cy+height); }
-        for(let y=sy; y<cy+height; y+=gs) { ctx.moveTo(cx,y); ctx.lineTo(cx+width,y); }
+        for(let x=sx; x<camera.x+width; x+=g) { ctx.moveTo(x,camera.y); ctx.lineTo(x,camera.y+height); }
+        for(let y=sy; y<camera.y+height; y+=g) { ctx.moveTo(camera.x,y); ctx.lineTo(camera.x+width,y); }
         ctx.stroke();
 
         // Walls
+        ctx.fillStyle = '#555'; ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
         walls.forEach(w => {
             ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(w.angle);
-            ctx.fillStyle = '#666'; ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h);
-            ctx.strokeStyle = '#999'; ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h);
+            ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h);
+            ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h);
             ctx.restore();
         });
 
@@ -468,105 +521,203 @@
 
         // Particles
         particles.forEach(p => {
-            ctx.fillStyle = p.color;
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.size||3, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill();
         });
 
-        ctx.restore();
-    }
-
-    function drawShip(x, y, ang, color, isPlayer) {
-        ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
-        
-        // Ghost effect
-        if(isPlayer && (player.active.q > 0 || player.active.r > 0) && (SHIPS[user.slots.q]?.name==="Shadow" || SHIPS[user.slots.r]?.name==="Shadow")) {
-            ctx.globalAlpha = 0.5;
+        // Waypoint Arrow
+        if(waypoint) {
+            let angle = Math.atan2(waypoint.y - player.y, waypoint.x - player.x);
+            let dist = Math.hypot(waypoint.x - player.x, waypoint.y - player.y);
+            ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(angle);
+            ctx.fillStyle = '#00ff00';
+            ctx.beginPath(); ctx.moveTo(60, 0); ctx.lineTo(50, -5); ctx.lineTo(50, 5); ctx.fill();
+            ctx.font = "12px monospace"; ctx.fillText(Math.round(dist)+"m", 70, 4);
+            ctx.restore();
         }
 
+        ctx.restore();
+        
+        // Maps
+        drawMiniMap(mmCtx, 180, 180, 0.02);
+        if(document.getElementById('bigMapOverlay').style.display === 'block') {
+            drawMiniMap(bmCtx, bmCanvas.width, bmCanvas.height, 0.05);
+        }
+    }
+
+    function drawShip(x, y, ang, color, isSelf) {
+        ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+        // Shadow effect if phasing
+        if(isSelf && (player.active.q>0 && SHIPS[user.slots.q].name==='Shadow' || player.active.r>0 && SHIPS[user.slots.r].name==='Shadow')) {
+            ctx.globalAlpha = 0.5;
+        }
         ctx.fillStyle = color;
         ctx.beginPath(); ctx.moveTo(20,0); ctx.lineTo(-15, 15); ctx.lineTo(-5,0); ctx.lineTo(-15,-15); ctx.fill();
-        
+        // Cockpit
+        ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(-2,0,5,0,Math.PI*2); ctx.fill();
         ctx.restore();
     }
 
-    // --- UI HELPERS ---
-    function updateHUD() {
+    function drawMiniMap(c, w, h, s) {
+        c.fillStyle = '#000'; c.fillRect(0,0,w,h);
+        let cx = w/2, cy = h/2;
+        walls.forEach(o => {
+            let ox = (o.x - player.x)*s + cx, oy = (o.y - player.y)*s + cy;
+            if(ox>0 && ox<w && oy>0 && oy<h) { c.fillStyle='#555'; c.fillRect(ox-2,oy-2,4,4); }
+        });
+        c.fillStyle = '#0f0'; c.beginPath(); c.arc(cx,cy,3,0,Math.PI*2); c.fill(); // Player
+        if(waypoint) {
+             let wx = (waypoint.x - player.x)*s + cx, wy = (waypoint.y - player.y)*s + cy;
+             c.strokeStyle='#0f0'; c.beginPath(); c.arc(wx,wy,5,0,Math.PI*2); c.stroke();
+        }
+    }
+
+    function drawHUD() {
         document.getElementById('speedDisplay').innerText = Math.round(Math.hypot(player.vx, player.vy)*10);
+        document.getElementById('hudPoints').innerText = user.points;
         document.getElementById('lapDisplay').innerText = player.lap + "/3";
         
-        updateAbilityUI('q');
-        updateAbilityUI('r');
+        updateSlotUI('q'); updateSlotUI('r');
     }
-
-    function updateAbilityUI(slot) {
-        let el = document.getElementById(slot+'AbilityUI');
+    
+    function updateSlotUI(slot) {
         let key = user.slots[slot];
-        if(!key) { el.innerHTML = `[${slot.toUpperCase()}] -- : LOCKED`; return; }
+        let nameEl = document.getElementById('name-'+slot);
+        let statEl = document.getElementById('status-'+slot);
         
-        let name = SHIPS[key].name;
+        if(!key) { nameEl.innerText = "--"; statEl.innerText = "EMPTY"; statEl.className = "ready"; return; }
+        
+        nameEl.innerText = SHIPS[key].name.toUpperCase();
         let cd = player.cooldowns[slot];
-        
-        if(cd > 0) el.innerHTML = `[${slot.toUpperCase()}] ${name}: <span style="color:orange">${Math.ceil(cd/60)}s</span>`;
-        else el.innerHTML = `[${slot.toUpperCase()}] ${name}: <span class="ready">READY</span>`;
+        if(cd > 0) {
+            statEl.innerText = Math.ceil(cd/60) + "s";
+            statEl.className = "cooldown";
+        } else {
+            statEl.innerText = "READY";
+            statEl.className = "ready";
+        }
     }
 
+    // --- HANGAR UI ---
+    let selectedHangarShip = null;
+
+    function openHangar() {
+        showMenu('hangarMenu');
+        renderHangar();
+    }
+    
+    function renderHangar() {
+        document.getElementById('hangarPoints').innerText = user.points;
+        const c = document.getElementById('cardContainer');
+        c.innerHTML = "";
+        
+        for(let key in SHIPS) {
+            let s = SHIPS[key];
+            let count = user.cards[key];
+            let unlocked = count >= 10;
+            
+            let div = document.createElement('div');
+            div.className = "ship-card " + (unlocked?"unlocked":"");
+            if(selectedHangarShip === key) div.classList.add('selected');
+            div.onclick = () => { selectedHangarShip = key; renderHangar(); };
+            
+            let fill = Math.min(100, (count/10)*100);
+            div.innerHTML = `
+                <div style="font-size:10px; color:${s.color}; padding:5px;">${unlocked?'UNLOCKED':'LOCKED'}</div>
+                <div class="card-bar"><div class="card-fill" style="width:${fill}%"></div></div>
+                <div class="card-name" style="color:${s.color}">${s.name}</div>
+                <div style="font-size:10px; color:#aaa;">${count}/10</div>
+            `;
+            c.appendChild(div);
+        }
+        
+        // Slot Displays
+        let q = user.slots.q ? SHIPS[user.slots.q] : null;
+        let r = user.slots.r ? SHIPS[user.slots.r] : null;
+        
+        document.getElementById('slotQ').innerHTML = q ? `<span style="color:${q.color}">${q.name}</span>` : "[Q] Empty";
+        document.getElementById('slotR').innerHTML = r ? `<span style="color:${r.color}">${r.name}</span>` : "[R] Empty";
+    }
+
+    function equipTo(slot) {
+        if(!selectedHangarShip) return alert("Select a ship card above first!");
+        if(user.cards[selectedHangarShip] < 10) return alert("You need 10 cards to unlock this ship!");
+        user.slots[slot] = selectedHangarShip;
+        saveUser();
+        renderHangar();
+    }
+
+    function buyBox() {
+        if(user.points < 1000) return alert("Need 1000 Points!");
+        user.points -= 1000;
+        
+        // Loot logic
+        let keys = Object.keys(SHIPS);
+        let drops = [];
+        for(let i=0; i<3; i++) {
+            let k = keys[Math.floor(Math.random()*keys.length)];
+            user.cards[k]++;
+            drops.push(SHIPS[k]);
+        }
+        saveUser();
+        renderHangar();
+
+        // Animation
+        document.getElementById('lootOverlay').style.display = 'flex';
+        document.getElementById('lootResults').innerHTML = "";
+        document.getElementById('lootClose').style.display = 'none';
+        
+        setTimeout(() => {
+            document.getElementById('lootText').innerText = "OPENED!";
+            document.getElementById('lootBoxVisual').style.animation = "none";
+            
+            drops.forEach((d, i) => {
+                let card = document.createElement('div');
+                card.className = "ship-card unlocked";
+                card.innerHTML = `<div style="padding:10px; color:${d.color}; font-weight:bold;">${d.name}</div>`;
+                document.getElementById('lootResults').appendChild(card);
+            });
+            document.getElementById('lootClose').style.display = 'block';
+        }, 1500);
+    }
+    
+    function closeLoot() {
+        document.getElementById('lootOverlay').style.display = 'none';
+        document.getElementById('lootText').innerText = "OPENING...";
+        document.getElementById('lootBoxVisual').style.animation = "shake 0.5s infinite";
+    }
+
+    function saveAndExitHangar() {
+        saveUser();
+        showMenu('mainMenu');
+    }
+
+    // --- UTILS ---
     function showMenu(id) {
         document.querySelectorAll('.menu-box').forEach(m => m.classList.remove('visible'));
         if(id) document.getElementById(id).classList.add('visible');
     }
-
-    function createExplosion(x,y,c,n) {
-        for(let i=0;i<n;i++) particles.push({x:x,y:y,vx:(Math.random()-0.5)*10,vy:(Math.random()-0.5)*10,life:30,color:c,size:4});
+    function spawnParticle(x,y,c,n) {
+        for(let i=0;i<n;i++) particles.push({x:x,y:y,vx:(Math.random()-0.5)*10,vy:(Math.random()-0.5)*10,s:Math.random()*3+1,c:c});
     }
-
-    // --- HANGAR UI LOGIC ---
-    let selectedForSlot = null;
-    function assignSlot(slotId) {
-        if(!selectedForSlot) return alert("Select a card first!");
-        let key = selectedForSlot;
-        if(slotId===1) user.slots.q = key;
-        if(slotId===2) user.slots.r = key;
-        saveUser();
-        updateHangarUI();
-    }
-    
-    // Hangar rendering (simplified from previous)
-    window.showMenu = function(id) {
-        document.querySelectorAll('.menu-box').forEach(m => m.classList.remove('visible'));
-        if(id) document.getElementById(id).classList.add('visible');
-        if(id === 'hangarMenu') updateHangarUI();
-    }
-
-    function updateHangarUI() {
-        const c = document.getElementById('cardContainer');
-        c.innerHTML = '';
-        document.getElementById('hangarPoints').innerText = user.points;
-        
-        for(let key in SHIPS) {
-            let ship = SHIPS[key];
-            let count = user.cards[key];
-            let unlocked = count >= 10;
-            let div = document.createElement('div');
-            div.className = `ship-card ${unlocked?'unlocked':''}`;
-            if(selectedForSlot === key) div.classList.add('selected');
-            div.innerHTML = `<div style="padding:10px; color:${ship.color}; font-weight:bold;">${ship.name}</div><div style="font-size:10px; color:#aaa;">${count}/10 Cards</div>`;
-            div.onclick = () => { if(unlocked) { selectedForSlot = key; updateHangarUI(); } };
-            c.appendChild(div);
+    function updateParticles() {
+        for(let i=particles.length-1; i>=0; i--) {
+            particles[i].x+=particles[i].vx; particles[i].y+=particles[i].vy; particles[i].s*=0.9;
+            if(particles[i].s<0.5) particles.splice(i,1);
         }
-        
-        document.getElementById('slot1Btn').innerText = "[Q] " + (user.slots.q ? SHIPS[user.slots.q].name : "Empty");
-        document.getElementById('slot2Btn').innerText = "[R] " + (user.slots.r ? SHIPS[user.slots.r].name : "Empty");
     }
-
-    window.buyLootBox = function() {
-        if(user.points < 1000) return alert("Need 1000 Points");
-        user.points -= 1000;
-        let keys = Object.keys(SHIPS);
-        let win = keys[Math.floor(Math.random()*keys.length)];
-        user.cards[win] += 5; // Give 5 cards
-        alert(`Box Opened! You got 5 ${SHIPS[win].name} cards!`);
-        saveUser();
-        updateHangarUI();
+    function toggleBigMap() {
+        let el = document.getElementById('bigMapOverlay');
+        el.style.display = el.style.display === 'block' ? 'none' : 'block';
+    }
+    function createWallBox(x,y,w,h) {
+        walls.push({x:x+w/2,y:y,w:w,h:20,angle:0});
+        walls.push({x:x+w/2,y:y+h,w:w,h:20,angle:0});
+        walls.push({x:x,y:y+h/2,w:h,h:20,angle:Math.PI/2});
+        walls.push({x:x+w,y:y+h/2,w:h,h:20,angle:Math.PI/2});
+    }
+    function setBuildTool(n) {
+        buildTool=n;
+        document.querySelectorAll('.tool-btn').forEach((b,i)=>b.classList.toggle('active',i===n));
     }
 </script>
 </body>
