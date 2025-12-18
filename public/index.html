@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Fixed Physics</title>
+    <title>Stellar Drift: Hazards Update</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; user-select: none; }
         canvas { display: block; }
@@ -126,7 +126,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Hangar & Combos Update</p>
+        <p>Space Hazards Update</p>
         
         <button onclick="setupRace()">Single Player Race</button>
         <button class="gold" onclick="setupOpenWorld()">Open World Online</button>
@@ -183,7 +183,6 @@
     const bmCanvas = document.getElementById('bigMapCanvas');
     const bmCtx = bmCanvas.getContext('2d');
     
-    // Socket Handling (Safe Mode)
     let socket;
     try { socket = io(); } catch(e) { console.log("Offline Mode"); }
 
@@ -205,7 +204,6 @@
         dasher: { name: "Dasher", color: "#ffff00", desc: "Teleport", cd: 300, dur: 0 }
     };
 
-    // User State (Persistence)
     let user = JSON.parse(localStorage.getItem('drift_user_v3')) || {
         points: 2000,
         cards: { nitro: 10, shadow: 0, vision: 0, dasher: 0 },
@@ -213,21 +211,21 @@
     };
     function saveUser() { localStorage.setItem('drift_user_v3', JSON.stringify(user)); }
 
-    // --- GAME VARIABLES ---
-    let gameState = 'menu'; // menu, race, openworld
-    let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false };
+    // --- VARIABLES ---
+    let gameState = 'menu';
+    let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false, wormholeDelay:0 };
     let camera = { x:0, y:0 };
-    let opponents = {}; // Multiplayer
-    let bots = [];      // Single Player
+    let bots = [];
     let walls = [], particles = [];
+    let blackHoles = [], meteors = [], wormholes = [];
     let waypoint = null;
-    let track = []; // Checkpoints
+    let track = [];
     
     let keys = { w:false, a:false, s:false, d:false };
-    let buildTool = 0; // 0=off, 1=wall, 2=barrier, 3=crate
+    let buildTool = 0;
     let mouse = { x:0, y:0 };
 
-    // --- INPUT LISTENERS ---
+    // --- INPUTS ---
     window.addEventListener('keydown', e => {
         if(document.activeElement.tagName === 'INPUT') return;
         if(e.key==='w'||e.key==='ArrowUp') keys.w=true;
@@ -245,10 +243,7 @@
         if(e.key==='d'||e.key==='ArrowRight') keys.d=false;
     });
     window.addEventListener('mousemove', e => { mouse.x=e.clientX; mouse.y=e.clientY; });
-    
-    // Building & Waypoints
     window.addEventListener('mousedown', (e) => {
-        // Big Map Waypoint
         if(document.getElementById('bigMapOverlay').style.display === 'block') {
             const rect = bmCanvas.getBoundingClientRect();
             const scale = 0.05;
@@ -257,20 +252,17 @@
             waypoint = {x:wx, y:wy};
             return;
         }
-        // Building
         if(gameState === 'openworld' && buildTool > 0) {
-            let wx = camera.x + mouse.x;
-            let wy = camera.y + mouse.y;
+            let wx = camera.x + mouse.x, wy = camera.y + mouse.y;
             let w=100, h=20;
-            if(buildTool===2) { w=400; h=40; } // Barrier
-            if(buildTool===3) { w=60; h=60; }  // Crate
+            if(buildTool===2) { w=400; h=40; }
+            if(buildTool===3) { w=60; h=60; }
             let obj = { x:wx, y:wy, w:w, h:h, angle:player.angle };
             walls.push(obj);
             if(socket) socket.emit('buildObject', obj);
         }
     });
 
-    // Chat
     document.getElementById('chatInput').addEventListener('keydown', e => {
         if(e.key === 'Enter') {
             let txt = e.target.value;
@@ -290,14 +282,13 @@
         ul.scrollTop = ul.scrollHeight;
     }
 
-    // --- GAME LOOP ---
     function loop() {
         if(gameState !== 'menu') {
             updatePhysics();
             if(gameState === 'race') updateRaceLogic();
+            updateHazards(); // NEW HAZARDS
             updateParticles();
             
-            // Camera follow
             camera.x += ((player.x - width/2) - camera.x) * 0.1;
             camera.y += ((player.y - height/2) - camera.y) * 0.1;
 
@@ -308,50 +299,38 @@
     }
     requestAnimationFrame(loop);
 
-    // --- PHYSICS & ABILITIES (FIXED) ---
     function updatePhysics() {
         if(player.finished) return;
 
         let ents = [player, ...bots];
         ents.forEach(ent => {
-            // Apply Friction
             ent.vx *= 0.96; ent.vy *= 0.96;
-            
-            // Apply Movement
             ent.x += ent.vx; ent.y += ent.vy;
+            
+            // Wormhole Cooldown
+            if(ent.wormholeDelay > 0) ent.wormholeDelay--;
 
-            // Check Collision
             let isPhasing = ent === player && (player.active.q > 0 && SHIPS[user.slots.q]?.name === 'Shadow' || player.active.r > 0 && SHIPS[user.slots.r]?.name === 'Shadow');
 
             if(!isPhasing) {
                 walls.forEach(w => {
-                    let dx = ent.x - w.x; let dy = ent.y - w.y;
+                    let dx = ent.x - w.x, dy = ent.y - w.y;
                     let lx = dx * Math.cos(-w.angle) - dy * Math.sin(-w.angle);
                     let ly = dx * Math.sin(-w.angle) + dy * Math.cos(-w.angle);
-                    
-                    // Collision Detected
                     if(Math.abs(lx) < w.w/2 + 15 && Math.abs(ly) < w.h/2 + 15) {
-                        // FIX: Undo movement immediately
-                        ent.x -= ent.vx;
-                        ent.y -= ent.vy;
-                        
-                        // Bounce (Reverse Velocity)
-                        ent.vx *= -0.5;
-                        ent.vy *= -0.5;
+                        ent.x -= ent.vx; ent.y -= ent.vy;
+                        ent.vx *= -0.5; ent.vy *= -0.5;
                     }
                 });
             }
         });
 
-        // Player Controls
         if(keys.a) player.angle -= 0.07;
         if(keys.d) player.angle += 0.07;
         
         let speed = 0.5;
-        // Nitro Check
         if((player.active.q>0 && SHIPS[user.slots.q]?.name==='Nitro') || (player.active.r>0 && SHIPS[user.slots.r]?.name==='Nitro')) {
-            speed = 1.0;
-            spawnParticle(player.x, player.y, 'cyan', 5);
+            speed = 1.0; spawnParticle(player.x, player.y, 'cyan', 5);
         }
 
         if(keys.w) {
@@ -361,106 +340,114 @@
         }
         if(keys.s) { player.vx *= 0.9; player.vy *= 0.9; }
 
-        // Cooldown Tick
         ['q','r'].forEach(slot => {
             if(player.cooldowns[slot] > 0) player.cooldowns[slot]--;
             if(player.active[slot] > 0) player.active[slot]--;
         });
 
-        // Socket Update
-        if(socket && gameState === 'openworld') {
-            socket.emit('playerUpdate', { x:player.x, y:player.y, angle:player.angle });
-        }
+        if(socket && gameState === 'openworld') socket.emit('playerUpdate', { x:player.x, y:player.y, angle:player.angle });
+    }
+
+    // --- HAZARDS LOGIC ---
+    function updateHazards() {
+        if(gameState !== 'openworld') return;
+
+        // 1. Black Holes (Gravity)
+        blackHoles.forEach(bh => {
+            let dist = Math.hypot(bh.x - player.x, bh.y - player.y);
+            if(dist < bh.r + 500) { // Pull range
+                let pull = 1.5 * (1 - dist/(bh.r+500));
+                let ang = Math.atan2(bh.y - player.y, bh.x - player.x);
+                player.vx += Math.cos(ang) * pull;
+                player.vy += Math.sin(ang) * pull;
+                spawnParticle(player.x, player.y, 'purple', 1);
+            }
+            if(dist < 30) { // Event Horizon (Death)
+                player.x = 0; player.y = 0; player.vx = 0; player.vy = 0;
+                addChat("System", "Player consumed by singularity.", false);
+            }
+        });
+
+        // 2. Meteors (Moving Obstacles)
+        meteors.forEach(m => {
+            m.x += m.vx; m.y += m.vy;
+            m.angle += m.spin;
+            
+            // Bounds wrap
+            if(m.x > 3000) m.x = -3000; if(m.x < -3000) m.x = 3000;
+            if(m.y > 3000) m.y = -3000; if(m.y < -3000) m.y = 3000;
+
+            // Collision
+            let dist = Math.hypot(m.x - player.x, m.y - player.y);
+            if(dist < m.s + 15) {
+                player.vx = (player.x - m.x) * 0.1; // Bounce back
+                player.vy = (player.y - m.y) * 0.1;
+                spawnParticle(player.x, player.y, 'brown', 10);
+            }
+        });
+
+        // 3. Wormholes (Teleport)
+        wormholes.forEach(w => {
+            let dist = Math.hypot(w.x - player.x, w.y - player.y);
+            if(dist < 40 && player.wormholeDelay <= 0) {
+                player.x = w.tx;
+                player.y = w.ty;
+                player.wormholeDelay = 120; // 2s cooldown
+                spawnParticle(player.x, player.y, 'cyan', 50);
+                addChat("System", "Wormhole traversed.", true);
+            }
+        });
     }
 
     function useAbility(slot) {
         if(gameState === 'menu' || player.finished) return;
         let shipKey = user.slots[slot];
         if(!shipKey || player.cooldowns[slot] > 0) return;
-
         let ship = SHIPS[shipKey];
         player.cooldowns[slot] = ship.cd;
         player.active[slot] = ship.dur;
-
-        // Instant Effects
-        if(ship.name === "Dasher") {
-            player.x += Math.cos(player.angle) * 400;
-            player.y += Math.sin(player.angle) * 400;
-            spawnParticle(player.x, player.y, 'yellow', 20);
-        }
-        if(ship.name === "Vision") {
-            // Jam nearby bots
-            bots.forEach(b => {
-                if(Math.hypot(b.x-player.x, b.y-player.y) < 800) {
-                    b.vx = 0; b.vy = 0; b.angle += Math.PI; // Spin out
-                }
-            });
-            // Visual
-            spawnParticle(player.x, player.y, 'magenta', 30);
-        }
+        if(ship.name === "Dasher") { player.x += Math.cos(player.angle)*400; player.y += Math.sin(player.angle)*400; spawnParticle(player.x, player.y, 'yellow', 20); }
+        if(ship.name === "Vision") { bots.forEach(b=>{ if(Math.hypot(b.x-player.x, b.y-player.y)<800){ b.vx=0; b.vy=0; b.angle+=Math.PI; }}); spawnParticle(player.x, player.y, 'magenta', 30); }
     }
 
-    // --- GAME MODES ---
-    
     function setupRace() {
         gameState = 'race';
         showMenu(null);
-        document.getElementById('hud-layer').style.display = 'block';
-        document.getElementById('raceInfo').style.display = 'block';
-        document.getElementById('buildToolbar').style.display = 'none';
-        document.getElementById('chatContainer').style.display = 'none';
-
-        // Track: Big Loop
+        document.getElementById('hud-layer').style.display='block';
+        document.getElementById('raceInfo').style.display='block';
+        document.getElementById('buildToolbar').style.display='none';
+        document.getElementById('chatContainer').style.display='none';
         track = [{x:0,y:0}, {x:2000,y:-500}, {x:2000,y:2000}, {x:-500,y:2000}];
-        
-        // Reset Player
-        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:1, finished:false };
-        
-        // Reset Bots
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:1, finished:false, wormholeDelay:0 };
         bots = [
             { x:0, y:100, vx:0, vy:0, angle:0, speed:0.95, nextCheck:1, lap:1, color:'#ff4444' },
             { x:0, y:-100, vx:0, vy:0, angle:0, speed:0.92, nextCheck:1, lap:1, color:'#44ff44' },
             { x:0, y:200, vx:0, vy:0, angle:0, speed:0.98, nextCheck:1, lap:1, color:'#ffff00' }
         ];
-
-        // Track Walls
         walls = [];
-        createWallBox(-500, -1000, 3000, 3500); // Outer Bounds
-        createWallBox(500, 0, 1000, 1500);      // Inner Island
-        
-        // Waypoint to first check
+        blackHoles = []; meteors = []; wormholes = []; // No hazards in race
+        createWallBox(-500, -1000, 3000, 3500);
+        createWallBox(500, 0, 1000, 1500);
         waypoint = track[1];
     }
 
     function updateRaceLogic() {
-        // Bots AI
         bots.forEach(b => {
             let target = track[b.nextCheck % track.length];
             let angle = Math.atan2(target.y - b.y, target.x - b.x);
-            // Turn
             let diff = angle - b.angle;
-            while(diff < -Math.PI) diff += Math.PI*2;
-            while(diff > Math.PI) diff -= Math.PI*2;
+            while(diff < -Math.PI) diff += Math.PI*2; while(diff > Math.PI) diff -= Math.PI*2;
             b.angle += diff * 0.05;
-            // Move
             b.vx += Math.cos(b.angle) * 0.45 * b.speed;
             b.vy += Math.sin(b.angle) * 0.45 * b.speed;
-            
-            // Checkpoint
-            if(Math.hypot(target.x-b.x, target.y-b.y) < 300) {
-                b.nextCheck++;
-                if((b.nextCheck-1)%track.length === 0) b.lap++;
-            }
+            if(Math.hypot(target.x-b.x, target.y-b.y) < 300) { b.nextCheck++; if((b.nextCheck-1)%track.length === 0) b.lap++; }
         });
-
-        // Player Checkpoint
         let target = track[player.nextCheck % track.length];
-        waypoint = target; // Arrow points to checkpoint
+        waypoint = target;
         if(Math.hypot(target.x - player.x, target.y - player.y) < 300) {
             player.nextCheck++;
             if((player.nextCheck-1)%track.length === 0) {
-                player.lap++;
-                spawnParticle(player.x, player.y, '#00ff00', 30);
+                player.lap++; spawnParticle(player.x, player.y, '#00ff00', 30);
                 if(player.lap > 3) finishRace();
             }
         }
@@ -468,13 +455,9 @@
 
     function finishRace() {
         player.finished = true;
-        let rank = 1;
-        bots.forEach(b => { if(b.lap > 3) rank++; }); // If bot finished before me
-        
+        let rank = 1; bots.forEach(b => { if(b.lap > 3) rank++; });
         let reward = rank===1?500 : (rank===2?300:100);
-        user.points += reward;
-        saveUser();
-        
+        user.points += reward; saveUser();
         document.getElementById('finishRank').innerText = rank + (rank===1?"st":rank===2?"nd":rank===3?"rd":"th") + " Place";
         document.getElementById('finishPoints').innerText = reward;
         showMenu('finishMenu');
@@ -483,24 +466,41 @@
     function setupOpenWorld() {
         gameState = 'openworld';
         showMenu(null);
-        document.getElementById('hud-layer').style.display = 'block';
-        document.getElementById('raceInfo').style.display = 'none';
-        document.getElementById('buildToolbar').style.display = 'block';
-        document.getElementById('chatContainer').style.display = 'block';
-        
-        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false };
-        walls = [];
-        bots = [];
-        waypoint = null;
+        document.getElementById('hud-layer').style.display='block';
+        document.getElementById('raceInfo').style.display='none';
+        document.getElementById('buildToolbar').style.display='block';
+        document.getElementById('chatContainer').style.display='block';
+        player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false, wormholeDelay:0 };
+        walls = []; bots = []; waypoint = null;
 
-        // Try to join server room
+        // SPAWN HAZARDS
+        blackHoles = [
+            { x: 1500, y: 1500, r: 80 }
+        ];
+        
+        wormholes = [
+            { x: -500, y: -500, tx: 500, ty: 500, color: 'cyan' },
+            { x: 500, y: 500, tx: -500, ty: -500, color: 'orange' }
+        ];
+
+        meteors = [];
+        for(let i=0; i<10; i++) {
+            meteors.push({
+                x: (Math.random()-0.5)*4000, 
+                y: (Math.random()-0.5)*4000,
+                vx: (Math.random()-0.5)*3,
+                vy: (Math.random()-0.5)*3,
+                s: 40 + Math.random()*40,
+                angle: Math.random(),
+                spin: (Math.random()-0.5)*0.05
+            });
+        }
+
         if(socket) socket.emit('joinOpenWorld');
     }
 
-    // --- DRAWING ---
     function drawWorld() {
         ctx.fillStyle = '#050508'; ctx.fillRect(0,0,width,height);
-        
         ctx.save();
         ctx.translate(-camera.x, -camera.y);
 
@@ -512,56 +512,64 @@
         for(let y=sy; y<camera.y+height; y+=g) { ctx.moveTo(camera.x,y); ctx.lineTo(camera.x+width,y); }
         ctx.stroke();
 
+        // 1. BLACK HOLES
+        blackHoles.forEach(bh => {
+            ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = 'purple'; ctx.lineWidth=5; ctx.stroke();
+            ctx.globalAlpha = 0.2; ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r+100, 0, Math.PI*2); ctx.fill();
+            ctx.globalAlpha = 1;
+        });
+
+        // 2. WORMHOLES
+        wormholes.forEach(w => {
+            ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(Date.now()/500);
+            ctx.strokeStyle = w.color; ctx.lineWidth=4;
+            ctx.beginPath(); 
+            for(let i=0; i<3; i++) { ctx.arc(0,0, 30-i*5, i, Math.PI+i); }
+            ctx.stroke(); ctx.restore();
+        });
+
+        // 3. METEORS
+        ctx.fillStyle = '#654321'; 
+        meteors.forEach(m => {
+            ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(m.angle);
+            ctx.beginPath(); ctx.arc(0,0, m.s, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(-5,-5, m.s/3, 0, Math.PI*2); ctx.fill(); ctx.fillStyle='#654321';
+            ctx.restore();
+        });
+
         // Walls
         ctx.fillStyle = '#555'; ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
         walls.forEach(w => {
             ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(w.angle);
-            ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h);
-            ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h);
+            ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h); ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h);
             ctx.restore();
         });
 
-        // Bots
         bots.forEach(b => drawShip(b.x, b.y, b.angle, b.color, false));
-
-        // Player
         let pColor = SHIPS[user.slots.q]?.color || '#fff';
         drawShip(player.x, player.y, player.angle, pColor, true);
 
-        // Particles
-        particles.forEach(p => {
-            ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill();
-        });
+        particles.forEach(p => { ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill(); });
 
-        // Waypoint Arrow
         if(waypoint) {
             let angle = Math.atan2(waypoint.y - player.y, waypoint.x - player.x);
             let dist = Math.hypot(waypoint.x - player.x, waypoint.y - player.y);
             ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(angle);
-            ctx.fillStyle = '#00ff00';
-            ctx.beginPath(); ctx.moveTo(60, 0); ctx.lineTo(50, -5); ctx.lineTo(50, 5); ctx.fill();
+            ctx.fillStyle = '#00ff00'; ctx.beginPath(); ctx.moveTo(60, 0); ctx.lineTo(50, -5); ctx.lineTo(50, 5); ctx.fill();
             ctx.font = "12px monospace"; ctx.fillText(Math.round(dist)+"m", 70, 4);
             ctx.restore();
         }
-
         ctx.restore();
         
-        // Maps
         drawMiniMap(mmCtx, 180, 180, 0.02);
-        if(document.getElementById('bigMapOverlay').style.display === 'block') {
-            drawMiniMap(bmCtx, bmCanvas.width, bmCanvas.height, 0.05);
-        }
+        if(document.getElementById('bigMapOverlay').style.display === 'block') drawMiniMap(bmCtx, bmCanvas.width, bmCanvas.height, 0.05);
     }
 
     function drawShip(x, y, ang, color, isSelf) {
         ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
-        // Shadow effect if phasing
-        if(isSelf && (player.active.q>0 && SHIPS[user.slots.q].name==='Shadow' || player.active.r>0 && SHIPS[user.slots.r].name==='Shadow')) {
-            ctx.globalAlpha = 0.5;
-        }
-        ctx.fillStyle = color;
-        ctx.beginPath(); ctx.moveTo(20,0); ctx.lineTo(-15, 15); ctx.lineTo(-5,0); ctx.lineTo(-15,-15); ctx.fill();
-        // Cockpit
+        if(isSelf && (player.active.q>0 && SHIPS[user.slots.q].name==='Shadow' || player.active.r>0 && SHIPS[user.slots.r].name==='Shadow')) ctx.globalAlpha = 0.5;
+        ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(20,0); ctx.lineTo(-15, 15); ctx.lineTo(-5,0); ctx.lineTo(-15,-15); ctx.fill();
         ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(-2,0,5,0,Math.PI*2); ctx.fill();
         ctx.restore();
     }
@@ -569,80 +577,54 @@
     function drawMiniMap(c, w, h, s) {
         c.fillStyle = '#000'; c.fillRect(0,0,w,h);
         let cx = w/2, cy = h/2;
+        // Hazards on Minimap
+        c.fillStyle = 'purple'; blackHoles.forEach(b => { let bx=(b.x-player.x)*s+cx, by=(b.y-player.y)*s+cy; if(bx>0&&bx<w&&by>0&&by<h) c.fillRect(bx-2,by-2,4,4); });
+        c.fillStyle = 'cyan'; wormholes.forEach(b => { let bx=(b.x-player.x)*s+cx, by=(b.y-player.y)*s+cy; if(bx>0&&bx<w&&by>0&&by<h) c.fillRect(bx-2,by-2,4,4); });
+        
         walls.forEach(o => {
             let ox = (o.x - player.x)*s + cx, oy = (o.y - player.y)*s + cy;
             if(ox>0 && ox<w && oy>0 && oy<h) { c.fillStyle='#555'; c.fillRect(ox-2,oy-2,4,4); }
         });
-        c.fillStyle = '#0f0'; c.beginPath(); c.arc(cx,cy,3,0,Math.PI*2); c.fill(); // Player
-        if(waypoint) {
-             let wx = (waypoint.x - player.x)*s + cx, wy = (waypoint.y - player.y)*s + cy;
-             c.strokeStyle='#0f0'; c.beginPath(); c.arc(wx,wy,5,0,Math.PI*2); c.stroke();
-        }
+        c.fillStyle = '#0f0'; c.beginPath(); c.arc(cx,cy,3,0,Math.PI*2); c.fill();
+        if(waypoint) { let wx = (waypoint.x - player.x)*s + cx, wy = (waypoint.y - player.y)*s + cy; c.strokeStyle='#0f0'; c.beginPath(); c.arc(wx,wy,5,0,Math.PI*2); c.stroke(); }
     }
 
     function drawHUD() {
         document.getElementById('speedDisplay').innerText = Math.round(Math.hypot(player.vx, player.vy)*10);
         document.getElementById('hudPoints').innerText = user.points;
         document.getElementById('lapDisplay').innerText = player.lap + "/3";
-        
         updateSlotUI('q'); updateSlotUI('r');
     }
     
     function updateSlotUI(slot) {
         let key = user.slots[slot];
-        let nameEl = document.getElementById('name-'+slot);
-        let statEl = document.getElementById('status-'+slot);
-        
+        let nameEl = document.getElementById('name-'+slot), statEl = document.getElementById('status-'+slot);
         if(!key) { nameEl.innerText = "--"; statEl.innerText = "EMPTY"; statEl.className = "ready"; return; }
-        
         nameEl.innerText = SHIPS[key].name.toUpperCase();
         let cd = player.cooldowns[slot];
-        if(cd > 0) {
-            statEl.innerText = Math.ceil(cd/60) + "s";
-            statEl.className = "cooldown";
-        } else {
-            statEl.innerText = "READY";
-            statEl.className = "ready";
-        }
+        if(cd > 0) { statEl.innerText = Math.ceil(cd/60) + "s"; statEl.className = "cooldown"; }
+        else { statEl.innerText = "READY"; statEl.className = "ready"; }
     }
 
-    // --- HANGAR UI ---
     let selectedHangarShip = null;
-
-    function openHangar() {
-        showMenu('hangarMenu');
-        renderHangar();
-    }
-    
+    function openHangar() { showMenu('hangarMenu'); renderHangar(); }
     function renderHangar() {
         document.getElementById('hangarPoints').innerText = user.points;
-        const c = document.getElementById('cardContainer');
-        c.innerHTML = "";
-        
+        const c = document.getElementById('cardContainer'); c.innerHTML = "";
         for(let key in SHIPS) {
-            let s = SHIPS[key];
-            let count = user.cards[key];
-            let unlocked = count >= 10;
-            
+            let s = SHIPS[key]; let count = user.cards[key]; let unlocked = count >= 10;
             let div = document.createElement('div');
             div.className = "ship-card " + (unlocked?"unlocked":"");
             if(selectedHangarShip === key) div.classList.add('selected');
             div.onclick = () => { selectedHangarShip = key; renderHangar(); };
-            
             let fill = Math.min(100, (count/10)*100);
-            div.innerHTML = `
-                <div style="font-size:10px; color:${s.color}; padding:5px;">${unlocked?'UNLOCKED':'LOCKED'}</div>
+            div.innerHTML = `<div style="font-size:10px; color:${s.color}; padding:5px;">${unlocked?'UNLOCKED':'LOCKED'}</div>
                 <div class="card-bar"><div class="card-fill" style="width:${fill}%"></div></div>
                 <div class="card-name" style="color:${s.color}">${s.name}</div>
-                <div style="font-size:10px; color:#aaa;">${count}/10</div>
-            `;
+                <div style="font-size:10px; color:#aaa;">${count}/10</div>`;
             c.appendChild(div);
         }
-        
-        // Slot Displays
-        let q = user.slots.q ? SHIPS[user.slots.q] : null;
-        let r = user.slots.r ? SHIPS[user.slots.r] : null;
-        
+        let q = user.slots.q ? SHIPS[user.slots.q] : null; let r = user.slots.r ? SHIPS[user.slots.r] : null;
         document.getElementById('slotQ').innerHTML = q ? `<span style="color:${q.color}">${q.name}</span>` : "[Q] Empty";
         document.getElementById('slotR').innerHTML = r ? `<span style="color:${r.color}">${r.name}</span>` : "[R] Empty";
     }
@@ -650,38 +632,23 @@
     function equipTo(slot) {
         if(!selectedHangarShip) return alert("Select a ship card above first!");
         if(user.cards[selectedHangarShip] < 10) return alert("You need 10 cards to unlock this ship!");
-        user.slots[slot] = selectedHangarShip;
-        saveUser();
-        renderHangar();
+        user.slots[slot] = selectedHangarShip; saveUser(); renderHangar();
     }
 
     function buyBox() {
         if(user.points < 1000) return alert("Need 1000 Points!");
         user.points -= 1000;
-        
-        // Loot logic
-        let keys = Object.keys(SHIPS);
-        let drops = [];
-        for(let i=0; i<3; i++) {
-            let k = keys[Math.floor(Math.random()*keys.length)];
-            user.cards[k]++;
-            drops.push(SHIPS[k]);
-        }
-        saveUser();
-        renderHangar();
-
-        // Animation
+        let keys = Object.keys(SHIPS); let drops = [];
+        for(let i=0; i<3; i++) { let k = keys[Math.floor(Math.random()*keys.length)]; user.cards[k]++; drops.push(SHIPS[k]); }
+        saveUser(); renderHangar();
         document.getElementById('lootOverlay').style.display = 'flex';
         document.getElementById('lootResults').innerHTML = "";
         document.getElementById('lootClose').style.display = 'none';
-        
         setTimeout(() => {
             document.getElementById('lootText').innerText = "OPENED!";
             document.getElementById('lootBoxVisual').style.animation = "none";
-            
             drops.forEach((d, i) => {
-                let card = document.createElement('div');
-                card.className = "ship-card unlocked";
+                let card = document.createElement('div'); card.className = "ship-card unlocked";
                 card.innerHTML = `<div style="padding:10px; color:${d.color}; font-weight:bold;">${d.name}</div>`;
                 document.getElementById('lootResults').appendChild(card);
             });
@@ -689,45 +656,14 @@
         }, 1500);
     }
     
-    function closeLoot() {
-        document.getElementById('lootOverlay').style.display = 'none';
-        document.getElementById('lootText').innerText = "OPENING...";
-        document.getElementById('lootBoxVisual').style.animation = "shake 0.5s infinite";
-    }
-
-    function saveAndExitHangar() {
-        saveUser();
-        showMenu('mainMenu');
-    }
-
-    // --- UTILS ---
-    function showMenu(id) {
-        document.querySelectorAll('.menu-box').forEach(m => m.classList.remove('visible'));
-        if(id) document.getElementById(id).classList.add('visible');
-    }
-    function spawnParticle(x,y,c,n) {
-        for(let i=0;i<n;i++) particles.push({x:x,y:y,vx:(Math.random()-0.5)*10,vy:(Math.random()-0.5)*10,s:Math.random()*3+1,c:c});
-    }
-    function updateParticles() {
-        for(let i=particles.length-1; i>=0; i--) {
-            particles[i].x+=particles[i].vx; particles[i].y+=particles[i].vy; particles[i].s*=0.9;
-            if(particles[i].s<0.5) particles.splice(i,1);
-        }
-    }
-    function toggleBigMap() {
-        let el = document.getElementById('bigMapOverlay');
-        el.style.display = el.style.display === 'block' ? 'none' : 'block';
-    }
-    function createWallBox(x,y,w,h) {
-        walls.push({x:x+w/2,y:y,w:w,h:20,angle:0});
-        walls.push({x:x+w/2,y:y+h,w:w,h:20,angle:0});
-        walls.push({x:x,y:y+h/2,w:h,h:20,angle:Math.PI/2});
-        walls.push({x:x+w,y:y+h/2,w:h,h:20,angle:Math.PI/2});
-    }
-    function setBuildTool(n) {
-        buildTool=n;
-        document.querySelectorAll('.tool-btn').forEach((b,i)=>b.classList.toggle('active',i===n));
-    }
+    function closeLoot() { document.getElementById('lootOverlay').style.display = 'none'; document.getElementById('lootText').innerText = "OPENING..."; document.getElementById('lootBoxVisual').style.animation = "shake 0.5s infinite"; }
+    function saveAndExitHangar() { saveUser(); showMenu('mainMenu'); }
+    function showMenu(id) { document.querySelectorAll('.menu-box').forEach(m => m.classList.remove('visible')); if(id) document.getElementById(id).classList.add('visible'); }
+    function spawnParticle(x,y,c,n) { for(let i=0;i<n;i++) particles.push({x:x,y:y,vx:(Math.random()-0.5)*10,vy:(Math.random()-0.5)*10,s:Math.random()*3+1,c:c}); }
+    function updateParticles() { for(let i=particles.length-1; i>=0; i--) { particles[i].x+=particles[i].vx; particles[i].y+=particles[i].vy; particles[i].s*=0.9; if(particles[i].s<0.5) particles.splice(i,1); } }
+    function toggleBigMap() { let el = document.getElementById('bigMapOverlay'); el.style.display = el.style.display === 'block' ? 'none' : 'block'; }
+    function createWallBox(x,y,w,h) { walls.push({x:x+w/2,y:y,w:w,h:20,angle:0}); walls.push({x:x+w/2,y:y+h,w:w,h:20,angle:0}); walls.push({x:x,y:y+h/2,w:h,h:20,angle:Math.PI/2}); walls.push({x:x+w,y:y+h/2,w:h,h:20,angle:Math.PI/2}); }
+    function setBuildTool(n) { buildTool=n; document.querySelectorAll('.tool-btn').forEach((b,i)=>b.classList.toggle('active',i===n)); }
 </script>
 </body>
 </html>
