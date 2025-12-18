@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Stellar Drift: Hazards Update</title>
+    <title>Stellar Drift: Economy Update</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050508; color: white; font-family: 'Segoe UI', monospace; user-select: none; }
         canvas { display: block; }
@@ -31,6 +31,7 @@
         button.secondary { background: #333; color: #aaa; }
         button.gold { background: linear-gradient(45deg, #ffd700, #ffaa00); color: black; }
         button.purple { background: linear-gradient(45deg, #aa00ff, #5500ff); color: white; }
+        button.red { background: linear-gradient(45deg, #ff4444, #990000); color: white; font-size: 10px; padding: 5px 10px; margin-top: 5px; }
 
         input { padding: 10px; background: #111; border: 1px solid #444; color: white; text-align: center; }
 
@@ -39,6 +40,7 @@
         .ability-row { margin-top: 5px; font-size: 14px; color: #aaa; }
         .ready { color: #00ff00; text-shadow: 0 0 5px #00ff00; }
         .cooldown { color: orange; }
+        .locked-slot { color: #555; font-style: italic; }
         
         /* CHAT */
         #chatContainer { position: absolute; bottom: 80px; left: 20px; width: 300px; pointer-events: auto; z-index: 100; display: none; }
@@ -55,7 +57,7 @@
         .tool-btn.active { background: #00d2ff; color: #000; border-color: #fff; }
 
         /* HANGAR CARDS */
-        .ship-card { display: inline-block; width: 100px; height: 130px; background: #111; border: 1px solid #444; margin: 5px; border-radius: 6px; position: relative; cursor: pointer; vertical-align: top; transition: 0.1s; }
+        .ship-card { display: inline-block; width: 110px; height: 160px; background: #111; border: 1px solid #444; margin: 5px; border-radius: 6px; position: relative; cursor: pointer; vertical-align: top; transition: 0.1s; }
         .ship-card:hover { background: #1a1a1a; }
         .ship-card.unlocked { border-color: #00d2ff; background: #081018; }
         .ship-card.selected { border-color: #ffd700; box-shadow: 0 0 10px #ffd700; transform: scale(1.05); }
@@ -67,6 +69,7 @@
         #lootOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 200; display: none; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; }
         .loot-box { width: 100px; height: 100px; background: gold; margin-bottom: 20px; box-shadow: 0 0 50px gold; animation: shake 0.5s infinite; }
         @keyframes shake { 0% { transform: rotate(0deg); } 25% { transform: rotate(5deg); } 75% { transform: rotate(-5deg); } 100% { transform: rotate(0deg); } }
+        .loot-msg { font-size: 24px; color: #ffd700; margin-bottom: 20px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -84,6 +87,7 @@
 <div id="lootOverlay">
     <div id="lootBoxVisual" class="loot-box"></div>
     <h1 id="lootText" style="color:white;">OPENING...</h1>
+    <div id="lootMsg" class="loot-msg"></div>
     <div id="lootResults" style="display:flex; gap:10px; margin-top:20px;"></div>
     <button id="lootClose" style="display:none; margin-top:30px;" onclick="closeLoot()">Collect</button>
 </div>
@@ -126,7 +130,7 @@
 <div class="menu-layer">
     <div id="mainMenu" class="menu-box visible">
         <h1>Stellar Drift</h1>
-        <p>Space Hazards Update</p>
+        <p>Economy & Merge Update</p>
         
         <button onclick="setupRace()">Single Player Race</button>
         <button class="gold" onclick="setupOpenWorld()">Open World Online</button>
@@ -135,22 +139,26 @@
         <button class="purple" onclick="openHangar()">HANGAR & LOOT</button>
     </div>
 
-    <div id="hangarMenu" class="menu-box" style="width:600px;">
+    <div id="hangarMenu" class="menu-box" style="width:650px;">
         <h2>SHIP HANGAR</h2>
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-            <div>Points: <span id="hangarPoints" style="color:#00d2ff">0</span></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; background:#111; padding:10px; border-radius:8px;">
+            <div>Points: <span id="hangarPoints" style="color:#00d2ff; font-weight:bold;">0</span></div>
+            <div>Merge Tokens: <span id="hangarTokens" style="color:#ff00ff; font-weight:bold;">0</span></div>
             <button class="gold" onclick="buyBox()">Buy Box (1000pts)</button>
         </div>
         
         <div id="cardContainer" style="text-align:left; margin-bottom:20px; padding-bottom:10px; border-bottom:1px solid #333; overflow-x:auto; white-space:nowrap;">
             </div>
 
-        <h3>COMBO STATION</h3>
-        <p style="font-size:12px; color:#aaa;">Select a ship above, then click a slot below.</p>
+        <h3>MERGE STATION</h3>
+        <p style="font-size:12px; color:#aaa;">Equip ships to create a combo. Unlock slot R to merge abilities.</p>
         <div style="display:flex; justify-content:center; gap:20px; align-items:center; margin-bottom:20px;">
             <div id="slotQ" onclick="equipTo('q')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">[Q] Primary</div>
             <div style="font-size:24px;">+</div>
-            <div id="slotR" onclick="equipTo('r')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">[R] Secondary</div>
+            
+            <div id="slotR_Container">
+                <div id="slotR" onclick="equipTo('r')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">[R] Secondary</div>
+            </div>
         </div>
 
         <button class="secondary" onclick="saveAndExitHangar()">Save & Back</button>
@@ -168,6 +176,7 @@
         <h1 style="color:#ffd700">FINISHED!</h1>
         <h2 id="finishRank">1st Place</h2>
         <p style="color:#00ff00; font-size:20px;">+<span id="finishPoints">0</span> Points</p>
+        <div id="tokenReward" style="color:#ff00ff; font-weight:bold; margin-bottom:10px; display:none;">+1 MERGE TOKEN!</div>
         <button onclick="setupRace()">Race Again</button>
         <button class="secondary" onclick="showMenu('mainMenu')">Main Menu</button>
     </div>
@@ -204,20 +213,22 @@
         dasher: { name: "Dasher", color: "#ffff00", desc: "Teleport", cd: 300, dur: 0 }
     };
 
-    let user = JSON.parse(localStorage.getItem('drift_user_v3')) || {
+    // User State with Tokens and Slots
+    let user = JSON.parse(localStorage.getItem('drift_user_v4')) || {
         points: 2000,
+        mergeTokens: 0,
+        slotRUnlocked: false,
         cards: { nitro: 10, shadow: 0, vision: 0, dasher: 0 },
         slots: { q: 'nitro', r: null }
     };
-    function saveUser() { localStorage.setItem('drift_user_v3', JSON.stringify(user)); }
+    function saveUser() { localStorage.setItem('drift_user_v4', JSON.stringify(user)); }
 
-    // --- VARIABLES ---
+    // --- GAME VARIABLES ---
     let gameState = 'menu';
     let player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:1, nextCheck:0, finished:false, wormholeDelay:0 };
     let camera = { x:0, y:0 };
     let bots = [];
-    let walls = [], particles = [];
-    let blackHoles = [], meteors = [], wormholes = [];
+    let walls = [], particles = [], blackHoles = [], meteors = [], wormholes = [];
     let waypoint = null;
     let track = [];
     
@@ -282,11 +293,12 @@
         ul.scrollTop = ul.scrollHeight;
     }
 
+    // --- GAME LOOP ---
     function loop() {
         if(gameState !== 'menu') {
             updatePhysics();
             if(gameState === 'race') updateRaceLogic();
-            updateHazards(); // NEW HAZARDS
+            updateHazards();
             updateParticles();
             
             camera.x += ((player.x - width/2) - camera.x) * 0.1;
@@ -301,17 +313,12 @@
 
     function updatePhysics() {
         if(player.finished) return;
-
         let ents = [player, ...bots];
         ents.forEach(ent => {
             ent.vx *= 0.96; ent.vy *= 0.96;
             ent.x += ent.vx; ent.y += ent.vy;
-            
-            // Wormhole Cooldown
             if(ent.wormholeDelay > 0) ent.wormholeDelay--;
-
             let isPhasing = ent === player && (player.active.q > 0 && SHIPS[user.slots.q]?.name === 'Shadow' || player.active.r > 0 && SHIPS[user.slots.r]?.name === 'Shadow');
-
             if(!isPhasing) {
                 walls.forEach(w => {
                     let dx = ent.x - w.x, dy = ent.y - w.y;
@@ -333,68 +340,41 @@
             speed = 1.0; spawnParticle(player.x, player.y, 'cyan', 5);
         }
 
-        if(keys.w) {
-            player.vx += Math.cos(player.angle) * speed;
-            player.vy += Math.sin(player.angle) * speed;
-            if(Math.random()>0.5) spawnParticle(player.x, player.y, 'orange', 1);
-        }
+        if(keys.w) { player.vx += Math.cos(player.angle) * speed; player.vy += Math.sin(player.angle) * speed; if(Math.random()>0.5) spawnParticle(player.x, player.y, 'orange', 1); }
         if(keys.s) { player.vx *= 0.9; player.vy *= 0.9; }
 
         ['q','r'].forEach(slot => {
             if(player.cooldowns[slot] > 0) player.cooldowns[slot]--;
             if(player.active[slot] > 0) player.active[slot]--;
         });
-
         if(socket && gameState === 'openworld') socket.emit('playerUpdate', { x:player.x, y:player.y, angle:player.angle });
     }
 
-    // --- HAZARDS LOGIC ---
     function updateHazards() {
         if(gameState !== 'openworld') return;
-
-        // 1. Black Holes (Gravity)
         blackHoles.forEach(bh => {
             let dist = Math.hypot(bh.x - player.x, bh.y - player.y);
-            if(dist < bh.r + 500) { // Pull range
+            if(dist < bh.r + 500) {
                 let pull = 1.5 * (1 - dist/(bh.r+500));
                 let ang = Math.atan2(bh.y - player.y, bh.x - player.x);
-                player.vx += Math.cos(ang) * pull;
-                player.vy += Math.sin(ang) * pull;
+                player.vx += Math.cos(ang) * pull; player.vy += Math.sin(ang) * pull;
                 spawnParticle(player.x, player.y, 'purple', 1);
             }
-            if(dist < 30) { // Event Horizon (Death)
-                player.x = 0; player.y = 0; player.vx = 0; player.vy = 0;
-                addChat("System", "Player consumed by singularity.", false);
-            }
+            if(dist < 30) { player.x = 0; player.y = 0; player.vx = 0; player.vy = 0; addChat("System", "Crushed by gravity.", false); }
         });
-
-        // 2. Meteors (Moving Obstacles)
         meteors.forEach(m => {
-            m.x += m.vx; m.y += m.vy;
-            m.angle += m.spin;
-            
-            // Bounds wrap
+            m.x += m.vx; m.y += m.vy; m.angle += m.spin;
             if(m.x > 3000) m.x = -3000; if(m.x < -3000) m.x = 3000;
             if(m.y > 3000) m.y = -3000; if(m.y < -3000) m.y = 3000;
-
-            // Collision
-            let dist = Math.hypot(m.x - player.x, m.y - player.y);
-            if(dist < m.s + 15) {
-                player.vx = (player.x - m.x) * 0.1; // Bounce back
-                player.vy = (player.y - m.y) * 0.1;
+            if(Math.hypot(m.x - player.x, m.y - player.y) < m.s + 15) {
+                player.vx = (player.x - m.x) * 0.1; player.vy = (player.y - m.y) * 0.1;
                 spawnParticle(player.x, player.y, 'brown', 10);
             }
         });
-
-        // 3. Wormholes (Teleport)
         wormholes.forEach(w => {
-            let dist = Math.hypot(w.x - player.x, w.y - player.y);
-            if(dist < 40 && player.wormholeDelay <= 0) {
-                player.x = w.tx;
-                player.y = w.ty;
-                player.wormholeDelay = 120; // 2s cooldown
-                spawnParticle(player.x, player.y, 'cyan', 50);
-                addChat("System", "Wormhole traversed.", true);
+            if(Math.hypot(w.x - player.x, w.y - player.y) < 40 && player.wormholeDelay <= 0) {
+                player.x = w.tx; player.y = w.ty; player.wormholeDelay = 120;
+                spawnParticle(player.x, player.y, 'cyan', 50); addChat("System", "Warp successful.", true);
             }
         });
     }
@@ -404,8 +384,7 @@
         let shipKey = user.slots[slot];
         if(!shipKey || player.cooldowns[slot] > 0) return;
         let ship = SHIPS[shipKey];
-        player.cooldowns[slot] = ship.cd;
-        player.active[slot] = ship.dur;
+        player.cooldowns[slot] = ship.cd; player.active[slot] = ship.dur;
         if(ship.name === "Dasher") { player.x += Math.cos(player.angle)*400; player.y += Math.sin(player.angle)*400; spawnParticle(player.x, player.y, 'yellow', 20); }
         if(ship.name === "Vision") { bots.forEach(b=>{ if(Math.hypot(b.x-player.x, b.y-player.y)<800){ b.vx=0; b.vy=0; b.angle+=Math.PI; }}); spawnParticle(player.x, player.y, 'magenta', 30); }
     }
@@ -424,10 +403,8 @@
             { x:0, y:-100, vx:0, vy:0, angle:0, speed:0.92, nextCheck:1, lap:1, color:'#44ff44' },
             { x:0, y:200, vx:0, vy:0, angle:0, speed:0.98, nextCheck:1, lap:1, color:'#ffff00' }
         ];
-        walls = [];
-        blackHoles = []; meteors = []; wormholes = []; // No hazards in race
-        createWallBox(-500, -1000, 3000, 3500);
-        createWallBox(500, 0, 1000, 1500);
+        walls = []; blackHoles = []; meteors = []; wormholes = [];
+        createWallBox(-500, -1000, 3000, 3500); createWallBox(500, 0, 1000, 1500);
         waypoint = track[1];
     }
 
@@ -456,8 +433,20 @@
     function finishRace() {
         player.finished = true;
         let rank = 1; bots.forEach(b => { if(b.lap > 3) rank++; });
+        
         let reward = rank===1?500 : (rank===2?300:100);
-        user.points += reward; saveUser();
+        user.points += reward;
+        
+        // MERGE TOKEN REWARD
+        let tokenMsg = document.getElementById('tokenReward');
+        if(rank === 1) {
+            user.mergeTokens++;
+            tokenMsg.style.display = 'block';
+        } else {
+            tokenMsg.style.display = 'none';
+        }
+
+        saveUser();
         document.getElementById('finishRank').innerText = rank + (rank===1?"st":rank===2?"nd":rank===3?"rd":"th") + " Place";
         document.getElementById('finishPoints').innerText = reward;
         showMenu('finishMenu');
@@ -472,39 +461,16 @@
         document.getElementById('chatContainer').style.display='block';
         player = { x:0, y:0, vx:0, vy:0, angle:0, cooldowns:{q:0, r:0}, active:{q:0, r:0}, lap:0, nextCheck:0, finished:false, wormholeDelay:0 };
         walls = []; bots = []; waypoint = null;
-
-        // SPAWN HAZARDS
-        blackHoles = [
-            { x: 1500, y: 1500, r: 80 }
-        ];
-        
-        wormholes = [
-            { x: -500, y: -500, tx: 500, ty: 500, color: 'cyan' },
-            { x: 500, y: 500, tx: -500, ty: -500, color: 'orange' }
-        ];
-
+        blackHoles = [{ x: 1500, y: 1500, r: 80 }];
+        wormholes = [{ x: -500, y: -500, tx: 500, ty: 500, color: 'cyan' }, { x: 500, y: 500, tx: -500, ty: -500, color: 'orange' }];
         meteors = [];
-        for(let i=0; i<10; i++) {
-            meteors.push({
-                x: (Math.random()-0.5)*4000, 
-                y: (Math.random()-0.5)*4000,
-                vx: (Math.random()-0.5)*3,
-                vy: (Math.random()-0.5)*3,
-                s: 40 + Math.random()*40,
-                angle: Math.random(),
-                spin: (Math.random()-0.5)*0.05
-            });
-        }
-
+        for(let i=0; i<10; i++) meteors.push({x:(Math.random()-0.5)*4000, y:(Math.random()-0.5)*4000, vx:(Math.random()-0.5)*3, vy:(Math.random()-0.5)*3, s:40+Math.random()*40, angle:Math.random(), spin:(Math.random()-0.5)*0.05});
         if(socket) socket.emit('joinOpenWorld');
     }
 
     function drawWorld() {
         ctx.fillStyle = '#050508'; ctx.fillRect(0,0,width,height);
-        ctx.save();
-        ctx.translate(-camera.x, -camera.y);
-
-        // Grid
+        ctx.save(); ctx.translate(-camera.x, -camera.y);
         ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
         let g=500, sx=Math.floor(camera.x/g)*g, sy=Math.floor(camera.y/g)*g;
         ctx.beginPath();
@@ -512,56 +478,24 @@
         for(let y=sy; y<camera.y+height; y+=g) { ctx.moveTo(camera.x,y); ctx.lineTo(camera.x+width,y); }
         ctx.stroke();
 
-        // 1. BLACK HOLES
-        blackHoles.forEach(bh => {
-            ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r, 0, Math.PI*2); ctx.fill();
-            ctx.strokeStyle = 'purple'; ctx.lineWidth=5; ctx.stroke();
-            ctx.globalAlpha = 0.2; ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r+100, 0, Math.PI*2); ctx.fill();
-            ctx.globalAlpha = 1;
-        });
+        blackHoles.forEach(bh => { ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.r, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = 'purple'; ctx.lineWidth=5; ctx.stroke(); });
+        wormholes.forEach(w => { ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(Date.now()/500); ctx.strokeStyle = w.color; ctx.lineWidth=4; ctx.beginPath(); for(let i=0; i<3; i++) { ctx.arc(0,0, 30-i*5, i, Math.PI+i); } ctx.stroke(); ctx.restore(); });
+        ctx.fillStyle = '#654321'; meteors.forEach(m => { ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(m.angle); ctx.beginPath(); ctx.arc(0,0, m.s, 0, Math.PI*2); ctx.fill(); ctx.restore(); });
 
-        // 2. WORMHOLES
-        wormholes.forEach(w => {
-            ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(Date.now()/500);
-            ctx.strokeStyle = w.color; ctx.lineWidth=4;
-            ctx.beginPath(); 
-            for(let i=0; i<3; i++) { ctx.arc(0,0, 30-i*5, i, Math.PI+i); }
-            ctx.stroke(); ctx.restore();
-        });
-
-        // 3. METEORS
-        ctx.fillStyle = '#654321'; 
-        meteors.forEach(m => {
-            ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(m.angle);
-            ctx.beginPath(); ctx.arc(0,0, m.s, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(-5,-5, m.s/3, 0, Math.PI*2); ctx.fill(); ctx.fillStyle='#654321';
-            ctx.restore();
-        });
-
-        // Walls
         ctx.fillStyle = '#555'; ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
-        walls.forEach(w => {
-            ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(w.angle);
-            ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h); ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h);
-            ctx.restore();
-        });
+        walls.forEach(w => { ctx.save(); ctx.translate(w.x, w.y); ctx.rotate(w.angle); ctx.fillRect(-w.w/2, -w.h/2, w.w, w.h); ctx.strokeRect(-w.w/2, -w.h/2, w.w, w.h); ctx.restore(); });
 
         bots.forEach(b => drawShip(b.x, b.y, b.angle, b.color, false));
-        let pColor = SHIPS[user.slots.q]?.color || '#fff';
-        drawShip(player.x, player.y, player.angle, pColor, true);
-
+        drawShip(player.x, player.y, player.angle, SHIPS[user.slots.q]?.color||'#fff', true);
         particles.forEach(p => { ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill(); });
-
         if(waypoint) {
             let angle = Math.atan2(waypoint.y - player.y, waypoint.x - player.x);
             let dist = Math.hypot(waypoint.x - player.x, waypoint.y - player.y);
             ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(angle);
             ctx.fillStyle = '#00ff00'; ctx.beginPath(); ctx.moveTo(60, 0); ctx.lineTo(50, -5); ctx.lineTo(50, 5); ctx.fill();
-            ctx.font = "12px monospace"; ctx.fillText(Math.round(dist)+"m", 70, 4);
-            ctx.restore();
+            ctx.font = "12px monospace"; ctx.fillText(Math.round(dist)+"m", 70, 4); ctx.restore();
         }
         ctx.restore();
-        
         drawMiniMap(mmCtx, 180, 180, 0.02);
         if(document.getElementById('bigMapOverlay').style.display === 'block') drawMiniMap(bmCtx, bmCanvas.width, bmCanvas.height, 0.05);
     }
@@ -573,60 +507,84 @@
         ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(-2,0,5,0,Math.PI*2); ctx.fill();
         ctx.restore();
     }
-
-    function drawMiniMap(c, w, h, s) {
-        c.fillStyle = '#000'; c.fillRect(0,0,w,h);
-        let cx = w/2, cy = h/2;
-        // Hazards on Minimap
-        c.fillStyle = 'purple'; blackHoles.forEach(b => { let bx=(b.x-player.x)*s+cx, by=(b.y-player.y)*s+cy; if(bx>0&&bx<w&&by>0&&by<h) c.fillRect(bx-2,by-2,4,4); });
-        c.fillStyle = 'cyan'; wormholes.forEach(b => { let bx=(b.x-player.x)*s+cx, by=(b.y-player.y)*s+cy; if(bx>0&&bx<w&&by>0&&by<h) c.fillRect(bx-2,by-2,4,4); });
-        
-        walls.forEach(o => {
-            let ox = (o.x - player.x)*s + cx, oy = (o.y - player.y)*s + cy;
-            if(ox>0 && ox<w && oy>0 && oy<h) { c.fillStyle='#555'; c.fillRect(ox-2,oy-2,4,4); }
-        });
-        c.fillStyle = '#0f0'; c.beginPath(); c.arc(cx,cy,3,0,Math.PI*2); c.fill();
-        if(waypoint) { let wx = (waypoint.x - player.x)*s + cx, wy = (waypoint.y - player.y)*s + cy; c.strokeStyle='#0f0'; c.beginPath(); c.arc(wx,wy,5,0,Math.PI*2); c.stroke(); }
-    }
-
-    function drawHUD() {
-        document.getElementById('speedDisplay').innerText = Math.round(Math.hypot(player.vx, player.vy)*10);
-        document.getElementById('hudPoints').innerText = user.points;
-        document.getElementById('lapDisplay').innerText = player.lap + "/3";
-        updateSlotUI('q'); updateSlotUI('r');
-    }
-    
+    function drawMiniMap(c, w, h, s) { c.fillStyle = '#000'; c.fillRect(0,0,w,h); let cx = w/2, cy = h/2; walls.forEach(o => { let ox = (o.x - player.x)*s + cx, oy = (o.y - player.y)*s + cy; if(ox>0&&ox<w&&oy>0&&oy<h) { c.fillStyle='#555'; c.fillRect(ox-2,oy-2,4,4); } }); c.fillStyle = '#0f0'; c.beginPath(); c.arc(cx,cy,3,0,Math.PI*2); c.fill(); if(waypoint) { let wx = (waypoint.x - player.x)*s + cx, wy = (waypoint.y - player.y)*s + cy; c.strokeStyle='#0f0'; c.beginPath(); c.arc(wx,wy,5,0,Math.PI*2); c.stroke(); } }
+    function drawHUD() { document.getElementById('speedDisplay').innerText = Math.round(Math.hypot(player.vx, player.vy)*10); document.getElementById('hudPoints').innerText = user.points; document.getElementById('lapDisplay').innerText = player.lap + "/3"; updateSlotUI('q'); updateSlotUI('r'); }
     function updateSlotUI(slot) {
         let key = user.slots[slot];
         let nameEl = document.getElementById('name-'+slot), statEl = document.getElementById('status-'+slot);
+        if(slot === 'r' && !user.slotRUnlocked) { nameEl.innerText = "LOCKED"; statEl.innerText = ""; statEl.className="locked-slot"; return; }
         if(!key) { nameEl.innerText = "--"; statEl.innerText = "EMPTY"; statEl.className = "ready"; return; }
         nameEl.innerText = SHIPS[key].name.toUpperCase();
         let cd = player.cooldowns[slot];
-        if(cd > 0) { statEl.innerText = Math.ceil(cd/60) + "s"; statEl.className = "cooldown"; }
-        else { statEl.innerText = "READY"; statEl.className = "ready"; }
+        if(cd > 0) { statEl.innerText = Math.ceil(cd/60) + "s"; statEl.className = "cooldown"; } else { statEl.innerText = "READY"; statEl.className = "ready"; }
     }
 
+    // --- ECONOMY & HANGAR ---
     let selectedHangarShip = null;
     function openHangar() { showMenu('hangarMenu'); renderHangar(); }
+    
     function renderHangar() {
         document.getElementById('hangarPoints').innerText = user.points;
+        document.getElementById('hangarTokens').innerText = user.mergeTokens;
+        
+        // RENDER CARDS
         const c = document.getElementById('cardContainer'); c.innerHTML = "";
         for(let key in SHIPS) {
             let s = SHIPS[key]; let count = user.cards[key]; let unlocked = count >= 10;
             let div = document.createElement('div');
             div.className = "ship-card " + (unlocked?"unlocked":"");
             if(selectedHangarShip === key) div.classList.add('selected');
-            div.onclick = () => { selectedHangarShip = key; renderHangar(); };
+            
+            // Card visual
             let fill = Math.min(100, (count/10)*100);
-            div.innerHTML = `<div style="font-size:10px; color:${s.color}; padding:5px;">${unlocked?'UNLOCKED':'LOCKED'}</div>
+            let innerHTML = `
+                <div style="font-size:10px; color:${s.color}; padding:5px;">${unlocked?'UNLOCKED':'LOCKED'}</div>
                 <div class="card-bar"><div class="card-fill" style="width:${fill}%"></div></div>
                 <div class="card-name" style="color:${s.color}">${s.name}</div>
-                <div style="font-size:10px; color:#aaa;">${count}/10</div>`;
+                <div style="font-size:10px; color:#aaa;">${count}/10</div>
+            `;
+            
+            // Sell Button
+            if(count > 0) {
+                innerHTML += `<button class="red" onclick="event.stopPropagation(); sellCard('${key}')">Sell (10pts)</button>`;
+            }
+
+            div.innerHTML = innerHTML;
+            div.onclick = () => { selectedHangarShip = key; renderHangar(); };
             c.appendChild(div);
         }
-        let q = user.slots.q ? SHIPS[user.slots.q] : null; let r = user.slots.r ? SHIPS[user.slots.r] : null;
+
+        // SLOTS UI
+        let q = user.slots.q ? SHIPS[user.slots.q] : null;
         document.getElementById('slotQ').innerHTML = q ? `<span style="color:${q.color}">${q.name}</span>` : "[Q] Empty";
-        document.getElementById('slotR').innerHTML = r ? `<span style="color:${r.color}">${r.name}</span>` : "[R] Empty";
+        
+        let rContainer = document.getElementById('slotR_Container');
+        if(user.slotRUnlocked) {
+            let r = user.slots.r ? SHIPS[user.slots.r] : null;
+            rContainer.innerHTML = `<div id="slotR" onclick="equipTo('r')" style="border:1px dashed #555; width:120px; height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer;">${r ? `<span style="color:${r.color}">${r.name}</span>` : "[R] Empty"}</div>`;
+        } else {
+            rContainer.innerHTML = `<button class="purple" onclick="unlockSecondary()">Unlock Slot R<br>(50 Tokens)</button>`;
+        }
+    }
+
+    function sellCard(key) {
+        if(user.cards[key] > 0) {
+            user.cards[key]--;
+            user.points += 10;
+            saveUser();
+            renderHangar();
+        }
+    }
+
+    function unlockSecondary() {
+        if(user.mergeTokens >= 50) {
+            user.mergeTokens -= 50;
+            user.slotRUnlocked = true;
+            saveUser();
+            renderHangar();
+        } else {
+            alert("Not enough Merge Tokens! Win races to get more.");
+        }
     }
 
     function equipTo(slot) {
@@ -638,16 +596,60 @@
     function buyBox() {
         if(user.points < 1000) return alert("Need 1000 Points!");
         user.points -= 1000;
-        let keys = Object.keys(SHIPS); let drops = [];
-        for(let i=0; i<3; i++) { let k = keys[Math.floor(Math.random()*keys.length)]; user.cards[k]++; drops.push(SHIPS[k]); }
-        saveUser(); renderHangar();
+        
+        // RNG LOGIC
+        let roll = Math.random() * 100;
+        let drops = [];
+        let msg = "";
+        let keys = Object.keys(SHIPS);
+
+        if(roll < 50) {
+            // 50%: Points Only
+            let pts = Math.floor(Math.random() * 300) + 200;
+            user.points += pts;
+            msg = `+${pts} POINTS!`;
+        } else if (roll < 80) {
+            // 30%: 1 Card
+            let k = keys[Math.floor(Math.random()*keys.length)];
+            user.cards[k]++;
+            drops.push(SHIPS[k]);
+            msg = "1 CARD!";
+        } else if (roll < 90) {
+            // 10%: 2 Cards
+            for(let i=0; i<2; i++) {
+                let k = keys[Math.floor(Math.random()*keys.length)];
+                user.cards[k]++;
+                drops.push(SHIPS[k]);
+            }
+            msg = "2 CARDS!";
+        } else if (roll < 94) {
+            // 4%: All Cards
+            keys.forEach(k => {
+                user.cards[k]++;
+                drops.push(SHIPS[k]);
+            });
+            msg = "FULL SET!";
+        } else {
+            // 6%: Jackpot
+            user.points += 10000;
+            msg = "JACKPOT! 10,000 PTS!";
+        }
+
+        saveUser();
+        renderHangar();
+
+        // ANIMATION
         document.getElementById('lootOverlay').style.display = 'flex';
         document.getElementById('lootResults').innerHTML = "";
+        document.getElementById('lootMsg').innerText = "";
         document.getElementById('lootClose').style.display = 'none';
+        
         setTimeout(() => {
             document.getElementById('lootText').innerText = "OPENED!";
+            document.getElementById('lootMsg').innerText = msg;
             document.getElementById('lootBoxVisual').style.animation = "none";
-            drops.forEach((d, i) => {
+            
+            drops.forEach((d) => {
                 let card = document.createElement('div'); card.className = "ship-card unlocked";
                 card.innerHTML = `<div style="padding:10px; color:${d.color}; font-weight:bold;">${d.name}</div>`;
                 document.getElementById('lootResults').appendChild(card);
