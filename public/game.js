@@ -19,7 +19,8 @@ let me = {
     mode: 'SHIP', location: 'SPACE',
     fuel: 100, maxFuel: 100, money: 0,
     inventory: { rocks: 0 },
-    activeQuest: null
+    activeQuest: null,
+    stats: { maxSpeed: 0 }
 };
 
 // Universe Data
@@ -27,7 +28,7 @@ let GALAXY = null;
 const otherPlayers = {};
 const keys = {};
 
-// --- EXPORTS ---
+// --- GLOBAL EXPORTS ---
 window.socket = socket;
 window.closeModal = () => { modal.style.display = 'none'; };
 window.acceptQuest = () => { socket.emit('acceptQuest', {roomCode}); window.closeModal(); };
@@ -37,8 +38,7 @@ window.leaveStation = () => {
     const map = GALAXY.maps[me.location];
     if(map && map.exits) {
         const exit = map.exits[0];
-        me.location = exit.to;
-        me.mode = 'SHIP';
+        me.location = exit.to; me.mode = 'SHIP';
         me.x = exit.spawnX; me.y = exit.spawnY; me.speed = 0;
         stationMenu.style.display = 'none';
     }
@@ -71,11 +71,8 @@ const startGame = (data) => {
     GALAXY = data.galaxy;
     currentState = 'PLAYING';
     uiLayer.classList.add('hidden');
-    
-    // Initialize HUD and set the Code immediately
     initHUD();
     document.getElementById('hud-code').innerText = roomCode; 
-
     requestAnimationFrame(gameLoop);
 };
 
@@ -87,16 +84,13 @@ socket.on('updatePlayerList', (list) => {
         if(id !== socket.id) otherPlayers[id] = list[id];
         else {
             const s = list[id];
-            me.money = s.money;
-            me.inventory = s.inventory;
-            me.activeQuest = s.activeQuest;
-            me.maxFuel = s.maxFuel;
+            me.money = s.money; me.inventory = s.inventory;
+            me.activeQuest = s.activeQuest; me.maxFuel = s.maxFuel;
             me.color = s.color;
             if(s.fuel === s.maxFuel) me.fuel = s.fuel; 
         }
     }
 });
-
 socket.on('updateSelf', (p) => Object.assign(me, p));
 socket.on('playerMoved', (data) => { if(otherPlayers[data.id]) Object.assign(otherPlayers[data.id], data); });
 socket.on('mapUpdate', (data) => { if(GALAXY.maps[data.location]) GALAXY.maps[data.location].resources = data.resources; });
@@ -114,8 +108,7 @@ function handleInteraction() {
             if (Math.hypot(me.x - obj.x, me.y - obj.y) < obj.r + 50) {
                 const map = GALAXY.maps[obj.id];
                 if(map) {
-                    me.location = obj.id;
-                    me.mode = 'WALK';
+                    me.location = obj.id; me.mode = 'WALK';
                     me.x = map.width/2; me.y = map.height/2; me.speed = 0;
                     if(obj.type === 'STATION') {
                         document.getElementById('station-name').innerText = obj.name;
@@ -131,8 +124,7 @@ function handleInteraction() {
         if (map.exits) {
             for(let exit of map.exits) {
                 if (Math.hypot(me.x - exit.x, me.y - exit.y) < 60) {
-                    me.location = exit.to;
-                    me.mode = 'SHIP';
+                    me.location = exit.to; me.mode = 'SHIP';
                     me.x = exit.spawnX; me.y = exit.spawnY; me.speed = 0;
                     stationMenu.style.display = 'none';
                     return;
@@ -141,10 +133,7 @@ function handleInteraction() {
         }
         if (map.npcs) {
             for(let npc of map.npcs) {
-                if (Math.hypot(me.x - npc.x, me.y - npc.y) < 50) {
-                    openNPCModal(npc);
-                    return;
-                }
+                if (Math.hypot(me.x - npc.x, me.y - npc.y) < 50) { openNPCModal(npc); return; }
             }
         }
         if (map.resources) {
@@ -171,7 +160,7 @@ function openNPCModal(npc) {
         } else {
             modalContent.innerHTML = `
                 <h2>${npc.name}</h2>
-                <p>I need a pilot.</p>
+                <p>Available Mission</p>
                 <button onclick="window.acceptQuest()">Accept Mission</button>
                 <button onclick="window.closeModal()">No thanks</button>
             `;
@@ -195,9 +184,10 @@ function updatePhysics() {
         if (keys['KeyD']) me.angle += 0.05;
         if (keys['KeyW'] && me.fuel > 0) { me.speed += 0.1; me.fuel -= 0.02; }
         if (keys['KeyS']) me.speed -= 0.05;
+        
         me.x += Math.cos(me.angle) * me.speed;
         me.y += Math.sin(me.angle) * me.speed;
-        me.speed *= 0.99;
+        me.speed *= 0.99; // Inertia
     } else {
         const moveSpeed = 5;
         let dx = 0; let dy = 0;
@@ -220,13 +210,21 @@ function updatePhysics() {
 
     if(roomCode) {
         socket.emit('playerUpdate', {
-            roomCode, x: me.x, y: me.y, angle: me.angle, mode: me.mode, location: me.location, fuel: me.fuel 
+            roomCode, 
+            x: me.x, y: me.y, angle: me.angle, 
+            mode: me.mode, location: me.location, 
+            fuel: me.fuel,
+            currentSpeed: Math.abs(me.speed) // SENDING SPEED TO SERVER HERE
         });
     }
 }
 
 function drawHUD() {
     document.getElementById('hud-loc').innerText = me.location;
+    // NEW: DISPLAY POS AND SPEED
+    document.getElementById('hud-pos').innerText = `${Math.round(me.x)}, ${Math.round(me.y)}`;
+    document.getElementById('hud-spd').innerText = Math.abs(me.speed).toFixed(1);
+    
     document.getElementById('hud-fuel').innerText = Math.floor(me.fuel) + '/' + me.maxFuel;
     document.getElementById('hud-money').innerText = '$' + me.money;
     document.getElementById('hud-rocks').innerText = me.inventory.rocks;
@@ -338,6 +336,8 @@ function initHUD() {
             CODE: <span id="hud-code" style="color:white; font-weight:bold;"></span>
         </div>
         <div class="hud-panel">LOC: <span id="hud-loc"></span></div>
+        <div class="hud-panel">POS: <span id="hud-pos"></span></div>
+        <div class="hud-panel">SPD: <span id="hud-spd"></span></div>
         <div class="hud-panel">FUEL: <span id="hud-fuel"></span></div>
         <div class="hud-panel">CASH: <span id="hud-money"></span></div>
         <div class="hud-panel">ROCKS: <span id="hud-rocks"></span></div>
