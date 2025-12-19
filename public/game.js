@@ -7,44 +7,71 @@ const uiLayer = document.getElementById('ui-layer');
 const interactionPrompt = document.getElementById('interaction-prompt');
 const modal = document.getElementById('modal');
 const modalContent = document.getElementById('modal-content');
+const stationMenu = document.getElementById('station-menu'); // NEW
 
 // Game State
 let currentState = 'MENU'; 
 let roomCode = null;
-let myId = null;
 
 // Local Player State
 let me = {
     x: 0, y: 0, angle: 0, speed: 0,
-    mode: 'SHIP', location: 'SPACE',
+    mode: 'SHIP', // SHIP or WALK
+    location: 'SPACE',
     fuel: 100, maxFuel: 100, money: 0,
     inventory: { rocks: 0 },
     activeQuest: null
 };
 
-// Universe Data (Received from Server)
+// Universe Data
 let GALAXY = null;
 const otherPlayers = {};
 const keys = {};
 
-// --- INPUT & SETUP ---
+// --- GLOBAL EXPORTS (For HTML Buttons) ---
+window.socket = socket;
+window.closeModal = () => { modal.style.display = 'none'; };
+window.acceptQuest = () => { socket.emit('acceptQuest', {roomCode}); window.closeModal(); };
+window.completeQuest = () => { socket.emit('completeQuest', {roomCode}); window.closeModal(); };
+window.buyFuelUpgrade = () => { socket.emit('buyUpgrade', {roomCode, item: 'fuelMax'}); window.closeModal(); };
+window.leaveStation = () => {
+    // Find exit and leave
+    const map = GALAXY.maps[me.location];
+    if(map && map.exits) {
+        const exit = map.exits[0];
+        me.location = exit.to;
+        me.mode = 'SHIP';
+        me.x = exit.spawnX; 
+        me.y = exit.spawnY;
+        me.speed = 0;
+        stationMenu.style.display = 'none'; // Hide menu
+    }
+};
+window.quickRefuel = () => {
+    me.fuel = me.maxFuel;
+    socket.emit('refuel', {roomCode});
+};
+
+// --- INPUT HANDLING ---
+// We use 'code' (KeyW) instead of 'key' (w) to avoid CapsLock issues
 window.addEventListener('keydown', (e) => {
-    keys[e.key.toLowerCase()] = true;
-    if (e.key.toLowerCase() === 'e') handleInteraction();
-    if (e.key === 'Escape') closeModal();
+    keys[e.code] = true;
+    if (e.code === 'KeyE') handleInteraction();
+    if (e.code === 'Escape') window.closeModal();
 });
-window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
-window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
-canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+window.addEventListener('keyup', (e) => keys[e.code] = false);
+
+window.addEventListener('resize', resize);
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resize();
 
 // --- NETWORK ---
-function createRoom() { socket.emit('createRoom'); }
-function joinRoom() { 
+window.createRoom = () => socket.emit('createRoom');
+window.joinRoom = () => { 
     const code = document.getElementById('room-code').value;
     if(code) socket.emit('joinRoom', code.toUpperCase()); 
 }
 
-// Initial Connection Handlers
 const startGame = (data) => {
     roomCode = data.code;
     GALAXY = data.galaxy;
@@ -57,27 +84,24 @@ const startGame = (data) => {
 socket.on('roomCreated', startGame);
 socket.on('joinedRoom', startGame);
 
-// State Updates
 socket.on('updatePlayerList', (list) => {
     for(let id in list) {
         if(id !== socket.id) otherPlayers[id] = list[id];
         else {
-            // Sync server-authoritative stats (money, quest, fuel-max)
             const s = list[id];
             me.money = s.money;
             me.inventory = s.inventory;
             me.activeQuest = s.activeQuest;
             me.maxFuel = s.maxFuel;
             me.color = s.color;
+            // Only sync fuel if we are receiving a refuel event, otherwise trust client prediction
+            if(s.fuel === s.maxFuel) me.fuel = s.fuel; 
         }
     }
 });
 
 socket.on('updateSelf', (p) => {
-    me.money = p.money;
-    me.inventory = p.inventory;
-    me.activeQuest = p.activeQuest;
-    me.maxFuel = p.maxFuel;
+    Object.assign(me, p); // Force sync
 });
 
 socket.on('playerMoved', (data) => {
@@ -90,40 +114,50 @@ socket.on('mapUpdate', (data) => {
     }
 });
 
-socket.on('questSuccess', (msg) => {
-    alert(msg); // Simple alert for success
-});
+socket.on('questSuccess', (msg) => alert(msg));
 
 // --- LOGIC ---
 
 function handleInteraction() {
     if(currentState !== 'PLAYING') return;
-    if(modal.style.display === 'block') { closeModal(); return; }
+    if(modal.style.display === 'block') { window.closeModal(); return; }
 
-    // 1. Interactions in SPACE (Entering Planets/Stations)
+    // 1. SPACE INTERACTIONS
     if (me.location === 'SPACE') {
         const stations = GALAXY.space.objects;
         for(let obj of stations) {
             if (Math.hypot(me.x - obj.x, me.y - obj.y) < obj.r + 50) {
                 const map = GALAXY.maps[obj.id];
-                me.location = obj.id;
-                me.mode = obj.type === 'INTERIOR' ? 'WALK' : 'WALK';
-                me.x = map.width/2; me.y = map.height/2; me.speed = 0;
+                if(map) {
+                    me.location = obj.id;
+                    me.mode = 'WALK';
+                    me.x = map.width/2; 
+                    me.y = map.height/2; 
+                    me.speed = 0;
+                    
+                    // Show Station Menu if it's a station
+                    if(obj.type === 'STATION') {
+                        document.getElementById('station-name').innerText = obj.name;
+                        stationMenu.style.display = 'block';
+                    }
+                }
                 return;
             }
         }
     } 
-    // 2. Interactions inside MAPS
+    // 2. SURFACE/INTERIOR INTERACTIONS
     else {
         const map = GALAXY.maps[me.location];
+        if (!map) return;
 
         // Exits
         if (map.exits) {
             for(let exit of map.exits) {
-                if (Math.hypot(me.x - exit.x, me.y - exit.y) < 50) {
+                if (Math.hypot(me.x - exit.x, me.y - exit.y) < 60) {
                     me.location = exit.to;
                     me.mode = 'SHIP';
                     me.x = exit.spawnX; me.y = exit.spawnY; me.speed = 0;
+                    stationMenu.style.display = 'none'; // Hide menu
                     return;
                 }
             }
@@ -132,17 +166,17 @@ function handleInteraction() {
         // NPCs
         if (map.npcs) {
             for(let npc of map.npcs) {
-                if (Math.hypot(me.x - npc.x, me.y - npc.y) < 40) {
+                if (Math.hypot(me.x - npc.x, me.y - npc.y) < 50) {
                     openNPCModal(npc);
                     return;
                 }
             }
         }
 
-        // Mining Rocks
+        // Mining
         if (map.resources) {
             for(let rock of map.resources) {
-                if (Math.hypot(me.x - rock.x, me.y - rock.y) < 40) {
+                if (Math.hypot(me.x - rock.x, me.y - rock.y) < 50) {
                     socket.emit('mineRock', { roomCode, rockId: rock.id });
                     return;
                 }
@@ -155,69 +189,84 @@ function openNPCModal(npc) {
     modal.style.display = 'block';
     
     if (npc.role === 'QUEST_GIVER') {
-        // Quest Logic
         if (me.activeQuest) {
-            // Check if completing
             modalContent.innerHTML = `
                 <h2>${npc.name}</h2>
-                <p>Did you complete the task?</p>
-                <p class="small">${me.activeQuest.desc}</p>
-                <button onclick="socket.emit('completeQuest', {roomCode}); closeModal()">Complete Quest</button>
-                <button onclick="closeModal()">Back</button>
+                <p>Mission: ${me.activeQuest.desc}</p>
+                <button onclick="window.completeQuest()">Complete ($${me.activeQuest.reward})</button>
+                <button onclick="window.closeModal()">Back</button>
             `;
         } else {
-            // Offer Quest
             modalContent.innerHTML = `
                 <h2>${npc.name}</h2>
-                <p>I have a job for you, pilot.</p>
-                <button onclick="socket.emit('acceptQuest', {roomCode}); closeModal()">Accept Mission</button>
-                <button onclick="closeModal()">No thanks</button>
+                <p>I need a pilot for a job.</p>
+                <button onclick="window.acceptQuest()">Accept Mission</button>
+                <button onclick="window.closeModal()">No thanks</button>
             `;
         }
     } else if (npc.role === 'SHOP') {
         modalContent.innerHTML = `
             <h2>${npc.name}</h2>
-            <p>Welcome to the Supply Depot.</p>
-            <p>Current Money: $${me.money}</p>
-            <button onclick="socket.emit('buyUpgrade', {roomCode, item: 'fuelMax'}); closeModal()">Upgrade Fuel Tank ($300)</button>
-            <button onclick="me.fuel = me.maxFuel; closeModal()">Refuel (Free)</button>
-            <button onclick="closeModal()">Leave</button>
+            <p>Wallet: $${me.money}</p>
+            <button onclick="window.buyFuelUpgrade()">Upgrade Tank ($300)</button>
+            <button onclick="window.quickRefuel()">Refuel Ship (Free)</button>
+            <button onclick="window.closeModal()">Leave</button>
         `;
     }
 }
 
-function closeModal() { modal.style.display = 'none'; }
-
 function updatePhysics() {
+    // Safety check: if map is missing, don't update physics
+    if (me.location !== 'SPACE' && (!GALAXY || !GALAXY.maps[me.location])) return;
+
     if (me.mode === 'SHIP') {
-        if (keys['w'] && me.fuel > 0) { me.speed += 0.1; me.fuel -= 0.02; }
-        if (keys['s']) me.speed -= 0.1;
-        if (keys['a']) me.angle -= 0.05;
-        if (keys['d']) me.angle += 0.05;
+        // SHIP PHYSICS
+        if (keys['KeyA']) me.angle -= 0.05;
+        if (keys['KeyD']) me.angle += 0.05;
+        if (keys['KeyW'] && me.fuel > 0) { 
+            me.speed += 0.1; 
+            me.fuel -= 0.02; 
+        }
+        if (keys['KeyS']) me.speed -= 0.05;
+        
         me.x += Math.cos(me.angle) * me.speed;
         me.y += Math.sin(me.angle) * me.speed;
-        me.speed *= 0.99;
+        me.speed *= 0.99; // Inertia
+
     } else {
-        const moveSpeed = 4;
-        if (keys['w']) me.y -= moveSpeed;
-        if (keys['s']) me.y += moveSpeed;
-        if (keys['a']) me.x -= moveSpeed;
-        if (keys['d']) me.x += moveSpeed;
-        
-        // Bounds
+        // WALK PHYSICS
+        const moveSpeed = 5; // Faster walking
+        let dx = 0;
+        let dy = 0;
+
+        if (keys['KeyW']) dy -= moveSpeed;
+        if (keys['KeyS']) dy += moveSpeed;
+        if (keys['KeyA']) dx -= moveSpeed;
+        if (keys['KeyD']) dx += moveSpeed;
+
+        me.x += dx;
+        me.y += dy;
+
+        // Safe Bounds Checking
         const map = GALAXY.maps[me.location];
-        if(map) {
-            me.x = Math.max(0, Math.min(map.width, me.x));
-            me.y = Math.max(0, Math.min(map.height, me.y));
+        if (map) {
+            // Use logical OR (||) to fallback to 0 if width is undefined (prevents NaN)
+            const maxX = map.width || 1000;
+            const maxY = map.height || 1000;
+            
+            if (me.x < 0) me.x = 0;
+            if (me.y < 0) me.y = 0;
+            if (me.x > maxX) me.x = maxX;
+            if (me.y > maxY) me.y = maxY;
         }
     }
 
-    // Network Sync
     if(roomCode) {
         socket.emit('playerUpdate', {
             roomCode,
             x: me.x, y: me.y, angle: me.angle,
-            mode: me.mode, location: me.location
+            mode: me.mode, location: me.location,
+            fuel: me.fuel 
         });
     }
 }
@@ -228,13 +277,9 @@ function drawHUD() {
     document.getElementById('hud-loc').innerText = me.location;
     document.getElementById('hud-fuel').innerText = Math.floor(me.fuel) + '/' + me.maxFuel;
     document.getElementById('hud-money').innerText = '$' + me.money;
-    
-    let questText = "NONE";
-    if(me.activeQuest) questText = `${me.activeQuest.type}: ${me.activeQuest.desc}`;
-    document.getElementById('hud-quest').innerText = questText;
     document.getElementById('hud-rocks').innerText = me.inventory.rocks;
+    document.getElementById('hud-quest').innerText = me.activeQuest ? me.activeQuest.desc : "None";
 
-    // Interaction Prompt Logic
     let prompt = "";
     if(me.location === 'SPACE') {
         GALAXY.space.objects.forEach(o => {
@@ -242,9 +287,11 @@ function drawHUD() {
         });
     } else {
         const map = GALAXY.maps[me.location];
-        if(map.exits) map.exits.forEach(e => { if(Math.hypot(me.x-e.x, me.y-e.y) < 50) prompt = "TAKEOFF"; });
-        if(map.npcs) map.npcs.forEach(n => { if(Math.hypot(me.x-n.x, me.y-n.y) < 40) prompt = "TALK"; });
-        if(map.resources) map.resources.forEach(r => { if(Math.hypot(me.x-r.x, me.y-r.y) < 40) prompt = "MINE ROCK"; });
+        if(map) {
+            if(map.exits) map.exits.forEach(e => { if(Math.hypot(me.x-e.x, me.y-e.y) < 60) prompt = "TAKEOFF"; });
+            if(map.npcs) map.npcs.forEach(n => { if(Math.hypot(me.x-n.x, me.y-n.y) < 50) prompt = "TALK"; });
+            if(map.resources) map.resources.forEach(r => { if(Math.hypot(me.x-r.x, me.y-r.y) < 50) prompt = "MINE"; });
+        }
     }
 
     if(prompt) {
@@ -255,63 +302,70 @@ function drawHUD() {
     }
 }
 
-function drawSpace() {
-    // Background Stars
-    ctx.fillStyle = 'white';
-    for(let i=0; i<100; i++) ctx.fillRect((i*137)%canvas.width, (i*243)%canvas.height, 1, 1);
+function drawGame() {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    GALAXY.space.objects.forEach(obj => {
-        ctx.beginPath();
-        ctx.arc(obj.x, obj.y, obj.r, 0, Math.PI*2);
-        ctx.fillStyle = obj.color;
-        ctx.fill();
+    ctx.save();
+    ctx.translate(canvas.width/2 - me.x, canvas.height/2 - me.y);
+
+    if (me.location === 'SPACE') {
+        // Space Background
         ctx.fillStyle = 'white';
-        ctx.font = '20px Consolas';
-        ctx.fillText(obj.name, obj.x - 30, obj.y);
-    });
-}
-
-function drawMap() {
-    const map = GALAXY.maps[me.location];
-    ctx.fillStyle = map.color;
-    ctx.fillRect(0, 0, map.width, map.height);
-
-    // Grid
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.beginPath();
-    for(let i=0; i<map.width; i+=100) { ctx.moveTo(i,0); ctx.lineTo(i, map.height); }
-    ctx.stroke();
-
-    if(map.exits) {
-        map.exits.forEach(e => {
-            ctx.fillStyle = 'rgba(0,255,0,0.3)';
-            ctx.beginPath(); ctx.arc(e.x, e.y, 40, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = 'white'; ctx.fillText("SHIP", e.x-10, e.y);
+        for(let i=0; i<150; i++) ctx.fillRect((i*137)%5000-2500, (i*243)%5000-2500, 2, 2);
+        
+        GALAXY.space.objects.forEach(obj => {
+            // Draw Orbit/Glow
+            ctx.shadowBlur = 20; ctx.shadowColor = obj.color;
+            ctx.fillStyle = obj.color;
+            ctx.beginPath(); ctx.arc(obj.x, obj.y, obj.r, 0, Math.PI*2); ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // Label
+            ctx.fillStyle = 'white';
+            ctx.font = '24px Consolas';
+            ctx.textAlign = 'center';
+            ctx.fillText(obj.name, obj.x, obj.y);
         });
-    }
-
-    if(map.npcs) {
-        map.npcs.forEach(n => {
-            ctx.fillStyle = 'cyan';
-            ctx.beginPath(); ctx.arc(n.x, n.y, 15, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = 'white'; ctx.font = '12px Consolas';
-            ctx.fillText(n.name, n.x-20, n.y-20);
-            if(n.role === 'QUEST_GIVER') {
-                ctx.fillStyle = 'yellow'; ctx.fillText("!", n.x-2, n.y-5);
-            } else {
-                ctx.fillStyle = 'gold'; ctx.fillText("$", n.x-3, n.y-5);
-            }
-        });
-    }
-
-    if(map.resources) {
-        map.resources.forEach(r => {
-            ctx.fillStyle = '#885555';
+    } else {
+        // Map Background
+        const map = GALAXY.maps[me.location];
+        if(map) {
+            ctx.fillStyle = map.color;
+            ctx.fillRect(0, 0, map.width, map.height);
+            
+            // Grid
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
             ctx.beginPath();
-            ctx.moveTo(r.x, r.y-10); ctx.lineTo(r.x+10, r.y+5); ctx.lineTo(r.x-10, r.y+5);
-            ctx.fill();
-        });
+            for(let i=0; i<map.width; i+=100) { ctx.moveTo(i,0); ctx.lineTo(i, map.height); }
+            for(let i=0; i<map.height; i+=100) { ctx.moveTo(0,i); ctx.lineTo(map.width, i); }
+            ctx.stroke();
+
+            // Exits
+            if(map.exits) map.exits.forEach(e => {
+                ctx.fillStyle = 'rgba(0,255,0,0.3)';
+                ctx.beginPath(); ctx.arc(e.x, e.y, 40, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'white'; ctx.textAlign = 'center'; ctx.fillText("SHIP", e.x, e.y);
+            });
+            // NPCs
+            if(map.npcs) map.npcs.forEach(n => {
+                ctx.fillStyle = 'cyan';
+                ctx.beginPath(); ctx.arc(n.x, n.y, 15, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = 'white'; ctx.fillText(n.name, n.x, n.y-25);
+                ctx.fillStyle = 'yellow'; ctx.fillText(n.role === 'SHOP' ? '$' : '!', n.x-3, n.y+4);
+            });
+            // Resources
+            if(map.resources) map.resources.forEach(r => {
+                ctx.fillStyle = '#885555';
+                ctx.beginPath(); ctx.moveTo(r.x, r.y-10); ctx.lineTo(r.x+10, r.y+5); ctx.lineTo(r.x-10, r.y+5); ctx.fill();
+            });
+        }
     }
+
+    drawPlayer(me);
+    for(let id in otherPlayers) drawPlayer(otherPlayers[id]);
+
+    ctx.restore();
 }
 
 function drawPlayer(p) {
@@ -327,34 +381,24 @@ function drawPlayer(p) {
     } else {
         ctx.fillStyle = p.color;
         ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = 'white'; ctx.fillText(p.id.substr(0,4), -10, -15);
+        ctx.fillStyle = 'white'; 
+        ctx.textAlign = 'center';
+        ctx.font = '12px Consolas';
+        ctx.fillText("PLAYER", 0, -15);
     }
     ctx.restore();
 }
 
 function gameLoop() {
     if (currentState !== 'PLAYING') return;
-
     updatePhysics();
     drawHUD();
-
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.save();
-    ctx.translate(canvas.width/2 - me.x, canvas.height/2 - me.y);
-
-    if (me.location === 'SPACE') drawSpace();
-    else drawMap();
-
-    drawPlayer(me);
-    for (let id in otherPlayers) drawPlayer(otherPlayers[id]);
-
-    ctx.restore();
+    drawGame();
     requestAnimationFrame(gameLoop);
 }
 
 function initHUD() {
+    // Basic Stats Overlay
     const hud = document.createElement('div');
     hud.id = 'hud';
     hud.innerHTML = `
