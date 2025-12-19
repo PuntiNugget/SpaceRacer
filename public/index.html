@@ -2,39 +2,22 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Node Racing Engine</title>
+    <title>Cosmos Online</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
     <div id="ui-layer">
-        <h1>Velocity Node</h1>
-        
-        <div id="main-menu">
-            <button onclick="startSinglePlayer()">Single Player</button>
-            <button onclick="showMultiplayerMenu()">Multiplayer</button>
-        </div>
-
-        <div id="multiplayer-menu" class="hidden">
-            <button onclick="createRoom()">Create Room</button>
-            <div class="join-section">
-                <input type="text" id="room-code-input" placeholder="Enter Room Code">
-                <button onclick="joinRoom()">Join Room</button>
-            </div>
-            <button onclick="backToMain()">Back</button>
-        </div>
-
-        <div id="lobby-screen" class="hidden">
-            <h2>Room Code: <span id="display-room-code"></span></h2>
-            <div id="player-list"></div>
-            <button id="start-btn" class="hidden" onclick="hostStartGame()">Start Race</button>
-            <p id="waiting-msg">Waiting for host...</p>
-        </div>
+        <h1>COSMOS ONLINE</h1>
+        <button onclick="createRoom()">Start New Galaxy</button>
+        <br><br>
+        <input id="room-code" placeholder="GALAXY CODE">
+        <button onclick="joinRoom()">Join Galaxy</button>
     </div>
 
-    <canvas id="gameCanvas"></canvas>
+    <div id="interaction-prompt">PRESS 'E' TO INTERACT</div>
 
+    <canvas id="gameCanvas"></canvas>
+    
     <script src="/socket.io/socket.io.js"></script>
     <script src="game.js"></script>
 </body>
