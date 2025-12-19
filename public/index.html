@@ -2,19 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Cosmos Online</title>
+    <title>Cosmos RPG</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="ui-layer">
-        <h1>COSMOS ONLINE</h1>
-        <button onclick="createRoom()">Start New Galaxy</button>
+        <h1>COSMOS RPG</h1>
+        <button onclick="createRoom()">Generate New Galaxy</button>
         <br><br>
         <input id="room-code" placeholder="GALAXY CODE">
         <button onclick="joinRoom()">Join Galaxy</button>
     </div>
 
-    <div id="interaction-prompt">PRESS 'E' TO INTERACT</div>
+    <div id="interaction-prompt"></div>
+
+    <div id="modal">
+        <div id="modal-content"></div>
+    </div>
 
     <canvas id="gameCanvas"></canvas>
     
