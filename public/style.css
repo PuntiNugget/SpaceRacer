@@ -1,5 +1,5 @@
 body {
-    margin: 0; overflow: hidden; background-color: #000;
+    margin: 0; overflow: hidden; background-color: #050505;
     font-family: 'Consolas', monospace; color: #00ffcc;
 }
 
@@ -11,17 +11,15 @@ body {
     z-index: 10;
 }
 
-/* Heads Up Display */
 #hud {
     position: absolute; top: 20px; left: 20px; pointer-events: none;
     display: flex; flex-direction: column; gap: 10px;
 }
 .hud-panel {
     background: rgba(0,0,0,0.7); border-left: 4px solid #00ffcc;
-    padding: 10px; width: 250px;
+    padding: 10px; width: 200px; color: white;
 }
 
-/* Interaction Prompt */
 #interaction-prompt {
     position: absolute; bottom: 100px; left: 50%;
     transform: translateX(-50%); background: #ffcc00;
@@ -29,7 +27,7 @@ body {
     display: none; border-radius: 4px;
 }
 
-/* Quest/Shop Modal */
+/* Modal for Quests/Shops */
 #modal {
     position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -50%); width: 400px;
@@ -38,7 +36,17 @@ body {
     z-index: 20;
 }
 #modal h2 { margin-top: 0; color: gold; }
-#modal p { font-size: 1.1em; }
+
+/* NEW: Station Quick Menu (Top Right) */
+#station-menu {
+    position: absolute; top: 20px; right: 20px;
+    background: rgba(0, 30, 60, 0.9);
+    border: 2px solid #00ffcc;
+    padding: 15px;
+    display: none; /* Hidden unless in station */
+    text-align: right;
+}
+#station-menu h3 { margin: 0 0 10px 0; color: #00ffcc; border-bottom: 1px solid #00ffcc;}
 
 canvas { display: block; }
 button {
