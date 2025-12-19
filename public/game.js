@@ -2,68 +2,40 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const socket = io();
 
-// DOM Elements
+// UI Elements
 const uiLayer = document.getElementById('ui-layer');
-const hud = document.getElementById('hud');
 const interactionPrompt = document.getElementById('interaction-prompt');
+const modal = document.getElementById('modal');
+const modalContent = document.getElementById('modal-content');
 
 // Game State
-let currentState = 'MENU'; // MENU, PLAYING
-let myId = null;
+let currentState = 'MENU'; 
 let roomCode = null;
+let myId = null;
 
-// The Player
-const me = {
-    x: 0, y: 0, angle: 0, 
-    speed: 0, 
-    mode: 'SHIP', // SHIP or WALK
-    location: 'SPACE', // SPACE, STATION_1, PLANET_RED
-    fuel: 100,
-    color: '#00ff00'
+// Local Player State
+let me = {
+    x: 0, y: 0, angle: 0, speed: 0,
+    mode: 'SHIP', location: 'SPACE',
+    fuel: 100, maxFuel: 100, money: 0,
+    inventory: { rocks: 0 },
+    activeQuest: null
 };
 
+// Universe Data (Received from Server)
+let GALAXY = null;
 const otherPlayers = {};
 const keys = {};
 
-// --- WORLD DATA ---
-// We define static locations in the universe
-const UNIVERSE = {
-    'SPACE': {
-        width: 10000, height: 10000,
-        objects: [
-            { type: 'STATION', id: 'STATION_1', x: 0, y: 0, r: 150, color: '#888' },
-            { type: 'PLANET', id: 'PLANET_RED', x: 2000, y: -1500, r: 300, color: '#cc4444' },
-            { type: 'PLANET', id: 'PLANET_BLUE', x: -2000, y: 1500, r: 400, color: '#4444cc' }
-        ]
-    },
-    'STATION_1': {
-        type: 'INTERIOR', width: 800, height: 600, color: '#222',
-        exits: [{ x: 400, y: 550, to: 'SPACE', spawnX: 0, spawnY: 200 }],
-        shops: [{ x: 400, y: 100, action: 'REFUEL' }]
-    },
-    'PLANET_RED': {
-        type: 'SURFACE', width: 2000, height: 2000, color: '#552222',
-        exits: [{ x: 1000, y: 1000, to: 'SPACE', spawnX: 2000, spawnY: -1100 }]
-    },
-    'PLANET_BLUE': {
-        type: 'SURFACE', width: 2000, height: 2000, color: '#222255',
-        exits: [{ x: 1000, y: 1000, to: 'SPACE', spawnX: -2000, spawnY: 1900 }]
-    }
-};
-
-// Visual Assets
-const stars = [];
-for(let i=0; i<500; i++) stars.push({x: Math.random()*4000-2000, y: Math.random()*4000-2000, s: Math.random()*2});
-
-// --- INPUT HANDLING ---
+// --- INPUT & SETUP ---
 window.addEventListener('keydown', (e) => {
     keys[e.key.toLowerCase()] = true;
     if (e.key.toLowerCase() === 'e') handleInteraction();
+    if (e.key === 'Escape') closeModal();
 });
 window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
-window.addEventListener('resize', resize);
-function resize(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-resize();
+window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+canvas.width = window.innerWidth; canvas.height = window.innerHeight;
 
 // --- NETWORK ---
 function createRoom() { socket.emit('createRoom'); }
@@ -72,269 +44,290 @@ function joinRoom() {
     if(code) socket.emit('joinRoom', code.toUpperCase()); 
 }
 
-socket.on('roomCreated', (code) => startGame(code));
-socket.on('joinedRoom', (code) => startGame(code));
+// Initial Connection Handlers
+const startGame = (data) => {
+    roomCode = data.code;
+    GALAXY = data.galaxy;
+    currentState = 'PLAYING';
+    uiLayer.classList.add('hidden');
+    initHUD();
+    requestAnimationFrame(gameLoop);
+};
+
+socket.on('roomCreated', startGame);
+socket.on('joinedRoom', startGame);
+
+// State Updates
 socket.on('updatePlayerList', (list) => {
     for(let id in list) {
         if(id !== socket.id) otherPlayers[id] = list[id];
         else {
-            // Sync server defaults if needed, but usually client authorities movement
-            if(!myId) {
-                myId = id;
-                me.color = list[id].color;
-            }
+            // Sync server-authoritative stats (money, quest, fuel-max)
+            const s = list[id];
+            me.money = s.money;
+            me.inventory = s.inventory;
+            me.activeQuest = s.activeQuest;
+            me.maxFuel = s.maxFuel;
+            me.color = s.color;
         }
     }
 });
+
+socket.on('updateSelf', (p) => {
+    me.money = p.money;
+    me.inventory = p.inventory;
+    me.activeQuest = p.activeQuest;
+    me.maxFuel = p.maxFuel;
+});
+
 socket.on('playerMoved', (data) => {
-    if(otherPlayers[data.id]) {
-        Object.assign(otherPlayers[data.id], data);
+    if(otherPlayers[data.id]) Object.assign(otherPlayers[data.id], data);
+});
+
+socket.on('mapUpdate', (data) => {
+    if(GALAXY.maps[data.location]) {
+        GALAXY.maps[data.location].resources = data.resources;
     }
 });
 
-function startGame(code) {
-    roomCode = code;
-    currentState = 'PLAYING';
-    uiLayer.classList.add('hidden');
-    
-    // Create HUD
-    const hudDiv = document.createElement('div');
-    hudDiv.id = 'hud';
-    hudDiv.innerHTML = `
-        <div class="hud-panel">LOCATION: <span id="hud-loc">DEEP SPACE</span></div>
-        <div class="hud-panel">FUEL: <span id="hud-fuel">100%</span></div>
-        <div class="hud-panel">MODE: <span id="hud-mode">SHIP</span></div>
-        <div class="hud-panel">ROOM: ${code}</div>
-    `;
-    document.body.appendChild(hudDiv);
-    
-    requestAnimationFrame(gameLoop);
-}
+socket.on('questSuccess', (msg) => {
+    alert(msg); // Simple alert for success
+});
 
 // --- LOGIC ---
 
 function handleInteraction() {
-    // Check if near any interactive object in current map
-    const map = UNIVERSE[me.location];
-    
-    // 1. Exits (Leaving planet/station)
-    if (map.exits) {
-        map.exits.forEach(exit => {
-            const dist = Math.hypot(me.x - exit.x, me.y - exit.y);
-            if (dist < 50) {
-                switchLocation(exit.to, exit.spawnX, exit.spawnY, 'SHIP');
-            }
-        });
-    }
+    if(currentState !== 'PLAYING') return;
+    if(modal.style.display === 'block') { closeModal(); return; }
 
-    // 2. Objects (Entering planet/station from Space)
+    // 1. Interactions in SPACE (Entering Planets/Stations)
     if (me.location === 'SPACE') {
-        map.objects.forEach(obj => {
-            const dist = Math.hypot(me.x - obj.x, me.y - obj.y);
-            if (dist < obj.r + 50) {
-                // Enter location
-                // Default spawn is center of map (width/2)
-                const targetMap = UNIVERSE[obj.id];
-                switchLocation(obj.id, targetMap.width/2, targetMap.height/2, 'WALK');
+        const stations = GALAXY.space.objects;
+        for(let obj of stations) {
+            if (Math.hypot(me.x - obj.x, me.y - obj.y) < obj.r + 50) {
+                const map = GALAXY.maps[obj.id];
+                me.location = obj.id;
+                me.mode = obj.type === 'INTERIOR' ? 'WALK' : 'WALK';
+                me.x = map.width/2; me.y = map.height/2; me.speed = 0;
+                return;
             }
-        });
-    }
-    
-    // 3. Shops/Actions
-    if (map.shops) {
-        map.shops.forEach(shop => {
-            const dist = Math.hypot(me.x - shop.x, me.y - shop.y);
-            if (dist < 50) {
-                if(shop.action === 'REFUEL') me.fuel = 100;
+        }
+    } 
+    // 2. Interactions inside MAPS
+    else {
+        const map = GALAXY.maps[me.location];
+
+        // Exits
+        if (map.exits) {
+            for(let exit of map.exits) {
+                if (Math.hypot(me.x - exit.x, me.y - exit.y) < 50) {
+                    me.location = exit.to;
+                    me.mode = 'SHIP';
+                    me.x = exit.spawnX; me.y = exit.spawnY; me.speed = 0;
+                    return;
+                }
             }
-        });
+        }
+
+        // NPCs
+        if (map.npcs) {
+            for(let npc of map.npcs) {
+                if (Math.hypot(me.x - npc.x, me.y - npc.y) < 40) {
+                    openNPCModal(npc);
+                    return;
+                }
+            }
+        }
+
+        // Mining Rocks
+        if (map.resources) {
+            for(let rock of map.resources) {
+                if (Math.hypot(me.x - rock.x, me.y - rock.y) < 40) {
+                    socket.emit('mineRock', { roomCode, rockId: rock.id });
+                    return;
+                }
+            }
+        }
     }
 }
 
-function switchLocation(newLoc, x, y, newMode) {
-    me.location = newLoc;
-    me.x = x;
-    me.y = y;
-    me.mode = newMode;
-    me.speed = 0;
-    // Reset view
+function openNPCModal(npc) {
+    modal.style.display = 'block';
+    
+    if (npc.role === 'QUEST_GIVER') {
+        // Quest Logic
+        if (me.activeQuest) {
+            // Check if completing
+            modalContent.innerHTML = `
+                <h2>${npc.name}</h2>
+                <p>Did you complete the task?</p>
+                <p class="small">${me.activeQuest.desc}</p>
+                <button onclick="socket.emit('completeQuest', {roomCode}); closeModal()">Complete Quest</button>
+                <button onclick="closeModal()">Back</button>
+            `;
+        } else {
+            // Offer Quest
+            modalContent.innerHTML = `
+                <h2>${npc.name}</h2>
+                <p>I have a job for you, pilot.</p>
+                <button onclick="socket.emit('acceptQuest', {roomCode}); closeModal()">Accept Mission</button>
+                <button onclick="closeModal()">No thanks</button>
+            `;
+        }
+    } else if (npc.role === 'SHOP') {
+        modalContent.innerHTML = `
+            <h2>${npc.name}</h2>
+            <p>Welcome to the Supply Depot.</p>
+            <p>Current Money: $${me.money}</p>
+            <button onclick="socket.emit('buyUpgrade', {roomCode, item: 'fuelMax'}); closeModal()">Upgrade Fuel Tank ($300)</button>
+            <button onclick="me.fuel = me.maxFuel; closeModal()">Refuel (Free)</button>
+            <button onclick="closeModal()">Leave</button>
+        `;
+    }
 }
+
+function closeModal() { modal.style.display = 'none'; }
 
 function updatePhysics() {
     if (me.mode === 'SHIP') {
-        // Drifting physics
-        if (keys['w'] && me.fuel > 0) {
-            me.speed += 0.1;
-            me.fuel -= 0.05;
-        }
+        if (keys['w'] && me.fuel > 0) { me.speed += 0.1; me.fuel -= 0.02; }
         if (keys['s']) me.speed -= 0.1;
         if (keys['a']) me.angle -= 0.05;
         if (keys['d']) me.angle += 0.05;
-        
         me.x += Math.cos(me.angle) * me.speed;
         me.y += Math.sin(me.angle) * me.speed;
-        me.speed *= 0.99; // Space friction
+        me.speed *= 0.99;
     } else {
-        // Walking physics (Direct control)
-        const moveSpeed = 3;
+        const moveSpeed = 4;
         if (keys['w']) me.y -= moveSpeed;
         if (keys['s']) me.y += moveSpeed;
         if (keys['a']) me.x -= moveSpeed;
         if (keys['d']) me.x += moveSpeed;
         
-        // Face mouse logic could go here, for now simple walking
-        if (keys['w'] || keys['s'] || keys['a'] || keys['d']) {
-            me.angle = Math.atan2(keys['s'] - keys['w'], keys['d'] - keys['a']); // Rough approximation
+        // Bounds
+        const map = GALAXY.maps[me.location];
+        if(map) {
+            me.x = Math.max(0, Math.min(map.width, me.x));
+            me.y = Math.max(0, Math.min(map.height, me.y));
         }
     }
 
-    // Bounds check for Interior/Planets
-    const map = UNIVERSE[me.location];
-    if (me.location !== 'SPACE') {
-        if(me.x < 0) me.x = 0;
-        if(me.y < 0) me.y = 0;
-        if(me.x > map.width) me.x = map.width;
-        if(me.y > map.height) me.y = map.height;
-    }
-
-    // Send to server
+    // Network Sync
     if(roomCode) {
         socket.emit('playerUpdate', {
             roomCode,
             x: me.x, y: me.y, angle: me.angle,
-            mode: me.mode,
-            location: me.location
+            mode: me.mode, location: me.location
         });
     }
 }
 
-// --- RENDER ---
-
-function drawCamera() {
-    // Center camera on player
-    ctx.save();
-    ctx.translate(canvas.width/2 - me.x, canvas.height/2 - me.y);
-}
+// --- RENDERING ---
 
 function drawHUD() {
     document.getElementById('hud-loc').innerText = me.location;
-    document.getElementById('hud-fuel').innerText = Math.floor(me.fuel) + '%';
-    document.getElementById('hud-mode').innerText = me.mode;
+    document.getElementById('hud-fuel').innerText = Math.floor(me.fuel) + '/' + me.maxFuel;
+    document.getElementById('hud-money').innerText = '$' + me.money;
     
-    // Check for interactions
-    let canInteract = false;
-    const map = UNIVERSE[me.location];
-    
-    // Logic to show "Press E"
-    if (me.location === 'SPACE') {
-        map.objects.forEach(obj => {
-            if (Math.hypot(me.x - obj.x, me.y - obj.y) < obj.r + 50) {
-                interactionPrompt.innerText = `PRESS 'E' TO ENTER ${obj.id}`;
-                canInteract = true;
-            }
+    let questText = "NONE";
+    if(me.activeQuest) questText = `${me.activeQuest.type}: ${me.activeQuest.desc}`;
+    document.getElementById('hud-quest').innerText = questText;
+    document.getElementById('hud-rocks').innerText = me.inventory.rocks;
+
+    // Interaction Prompt Logic
+    let prompt = "";
+    if(me.location === 'SPACE') {
+        GALAXY.space.objects.forEach(o => {
+            if(Math.hypot(me.x - o.x, me.y - o.y) < o.r + 50) prompt = `ENTER ${o.name}`;
         });
-    } else if (map.exits) {
-        map.exits.forEach(exit => {
-            if (Math.hypot(me.x - exit.x, me.y - exit.y) < 50) {
-                interactionPrompt.innerText = "PRESS 'E' TO TAKEOFF";
-                canInteract = true;
-            }
-        });
-    }
-    
-    if (map.shops) {
-         map.shops.forEach(shop => {
-            if (Math.hypot(me.x - shop.x, me.y - shop.y) < 50) {
-                interactionPrompt.innerText = `PRESS 'E' TO ${shop.action}`;
-                canInteract = true;
-            }
-        });
+    } else {
+        const map = GALAXY.maps[me.location];
+        if(map.exits) map.exits.forEach(e => { if(Math.hypot(me.x-e.x, me.y-e.y) < 50) prompt = "TAKEOFF"; });
+        if(map.npcs) map.npcs.forEach(n => { if(Math.hypot(me.x-n.x, me.y-n.y) < 40) prompt = "TALK"; });
+        if(map.resources) map.resources.forEach(r => { if(Math.hypot(me.x-r.x, me.y-r.y) < 40) prompt = "MINE ROCK"; });
     }
 
-    interactionPrompt.style.display = canInteract ? 'block' : 'none';
+    if(prompt) {
+        interactionPrompt.style.display = 'block';
+        interactionPrompt.innerText = `PRESS 'E' TO ${prompt}`;
+    } else {
+        interactionPrompt.style.display = 'none';
+    }
 }
 
-function drawSpaceMap() {
-    // Stars (parallax possible, but static for now)
-    stars.forEach(s => {
-        ctx.fillStyle = 'white';
-        ctx.fillRect(s.x + me.x*0.1, s.y + me.y*0.1, s.s, s.s); // Simple Parallax
-    });
+function drawSpace() {
+    // Background Stars
+    ctx.fillStyle = 'white';
+    for(let i=0; i<100; i++) ctx.fillRect((i*137)%canvas.width, (i*243)%canvas.height, 1, 1);
 
-    const map = UNIVERSE['SPACE'];
-    map.objects.forEach(obj => {
+    GALAXY.space.objects.forEach(obj => {
         ctx.beginPath();
         ctx.arc(obj.x, obj.y, obj.r, 0, Math.PI*2);
         ctx.fillStyle = obj.color;
         ctx.fill();
         ctx.fillStyle = 'white';
-        ctx.font = '20px monospace';
-        ctx.fillText(obj.id, obj.x - 30, obj.y);
+        ctx.font = '20px Consolas';
+        ctx.fillText(obj.name, obj.x - 30, obj.y);
     });
 }
 
-function drawSurfaceMap(mapName) {
-    const map = UNIVERSE[mapName];
-    // Draw Ground
+function drawMap() {
+    const map = GALAXY.maps[me.location];
     ctx.fillStyle = map.color;
     ctx.fillRect(0, 0, map.width, map.height);
-    
-    // Grid lines
+
+    // Grid
     ctx.strokeStyle = 'rgba(255,255,255,0.1)';
     ctx.beginPath();
     for(let i=0; i<map.width; i+=100) { ctx.moveTo(i,0); ctx.lineTo(i, map.height); }
-    for(let i=0; i<map.height; i+=100) { ctx.moveTo(0,i); ctx.lineTo(map.width, i); }
     ctx.stroke();
 
-    // Draw Exits (Ship)
     if(map.exits) {
         map.exits.forEach(e => {
             ctx.fillStyle = 'rgba(0,255,0,0.3)';
-            ctx.beginPath();
-            ctx.arc(e.x, e.y, 40, 0, Math.PI*2);
-            ctx.fill();
-            ctx.fillStyle = 'white';
-            ctx.fillText("SHIP", e.x-15, e.y);
+            ctx.beginPath(); ctx.arc(e.x, e.y, 40, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = 'white'; ctx.fillText("SHIP", e.x-10, e.y);
         });
     }
-    
-    // Draw Shops
-    if(map.shops) {
-        map.shops.forEach(s => {
-            ctx.fillStyle = 'gold';
-            ctx.fillRect(s.x-20, s.y-20, 40, 40);
-            ctx.fillStyle = 'black';
-            ctx.fillText("FUEL", s.x-15, s.y+5);
+
+    if(map.npcs) {
+        map.npcs.forEach(n => {
+            ctx.fillStyle = 'cyan';
+            ctx.beginPath(); ctx.arc(n.x, n.y, 15, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = 'white'; ctx.font = '12px Consolas';
+            ctx.fillText(n.name, n.x-20, n.y-20);
+            if(n.role === 'QUEST_GIVER') {
+                ctx.fillStyle = 'yellow'; ctx.fillText("!", n.x-2, n.y-5);
+            } else {
+                ctx.fillStyle = 'gold'; ctx.fillText("$", n.x-3, n.y-5);
+            }
+        });
+    }
+
+    if(map.resources) {
+        map.resources.forEach(r => {
+            ctx.fillStyle = '#885555';
+            ctx.beginPath();
+            ctx.moveTo(r.x, r.y-10); ctx.lineTo(r.x+10, r.y+5); ctx.lineTo(r.x-10, r.y+5);
+            ctx.fill();
         });
     }
 }
 
-function drawPlayer(p, isMe) {
-    // Don't draw if not in same location
+function drawPlayer(p) {
     if (p.location !== me.location) return;
-
     ctx.save();
     ctx.translate(p.x, p.y);
-    
     if (p.mode === 'SHIP') {
         ctx.rotate(p.angle);
         ctx.fillStyle = p.color;
         ctx.beginPath();
-        ctx.moveTo(20, 0);
-        ctx.lineTo(-15, 15);
-        ctx.lineTo(-5, 0);
-        ctx.lineTo(-15, -15);
+        ctx.moveTo(20, 0); ctx.lineTo(-15, 15); ctx.lineTo(-5, 0); ctx.lineTo(-15, -15);
         ctx.fill();
     } else {
-        // Walking Person
         ctx.fillStyle = p.color;
-        ctx.beginPath();
-        ctx.arc(0, 0, 10, 0, Math.PI*2);
-        ctx.fill();
-        // Name tag
-        ctx.fillStyle = 'white';
-        ctx.font = '10px monospace';
-        ctx.fillText(isMe ? "YOU" : "P2", -10, -15);
+        ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = 'white'; ctx.fillText(p.id.substr(0,4), -10, -15);
     }
     ctx.restore();
 }
@@ -345,23 +338,31 @@ function gameLoop() {
     updatePhysics();
     drawHUD();
 
-    // Clear Screen
     ctx.fillStyle = '#111';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    drawCamera();
+    ctx.save();
+    ctx.translate(canvas.width/2 - me.x, canvas.height/2 - me.y);
 
-    // Draw World
-    if (me.location === 'SPACE') drawSpaceMap();
-    else drawSurfaceMap(me.location);
+    if (me.location === 'SPACE') drawSpace();
+    else drawMap();
 
-    // Draw Players
-    drawPlayer(me, true);
-    for (let id in otherPlayers) {
-        drawPlayer(otherPlayers[id], false);
-    }
+    drawPlayer(me);
+    for (let id in otherPlayers) drawPlayer(otherPlayers[id]);
 
-    ctx.restore(); // Pop camera
-
+    ctx.restore();
     requestAnimationFrame(gameLoop);
+}
+
+function initHUD() {
+    const hud = document.createElement('div');
+    hud.id = 'hud';
+    hud.innerHTML = `
+        <div class="hud-panel">LOC: <span id="hud-loc"></span></div>
+        <div class="hud-panel">FUEL: <span id="hud-fuel"></span></div>
+        <div class="hud-panel">CASH: <span id="hud-money"></span></div>
+        <div class="hud-panel">ROCKS: <span id="hud-rocks"></span></div>
+        <div class="hud-panel" style="height:auto">QUEST:<br><span id="hud-quest" style="font-size:0.8em"></span></div>
+    `;
+    document.body.appendChild(hud);
 }
