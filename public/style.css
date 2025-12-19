@@ -1,9 +1,9 @@
 body {
     margin: 0;
     overflow: hidden;
-    background-color: #050505; /* Deep Space Black */
-    font-family: 'Courier New', Courier, monospace; /* Terminal look */
-    color: #00ffcc; /* Sci-fi Cyan */
+    background-color: #000;
+    font-family: 'Consolas', monospace;
+    color: #00ffcc;
 }
 
 #ui-layer {
@@ -12,62 +12,47 @@ body {
     left: 50%;
     transform: translate(-50%, -50%);
     text-align: center;
-    background: rgba(10, 20, 30, 0.95);
-    padding: 40px;
-    border-radius: 5px;
-    border: 2px solid #00ffcc;
-    box-shadow: 0 0 20px rgba(0, 255, 204, 0.2);
+    background: rgba(0, 20, 40, 0.9);
+    padding: 30px;
+    border: 1px solid #00aaaa;
+    box-shadow: 0 0 30px rgba(0, 170, 170, 0.2);
 }
 
-h1 {
-    text-transform: uppercase;
-    letter-spacing: 5px;
-    text-shadow: 0 0 10px #00ffcc;
+/* Heads Up Display (HUD) */
+#hud {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    pointer-events: none; /* Let clicks pass through */
 }
 
-canvas {
-    display: block;
-    background: transparent; /* Let JS handle the starfield */
+.hud-panel {
+    background: rgba(0,0,0,0.5);
+    border-left: 3px solid #00ffcc;
+    padding: 10px;
+    margin-bottom: 10px;
 }
 
+#interaction-prompt {
+    position: absolute;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ffcc00;
+    color: black;
+    padding: 10px 20px;
+    font-weight: bold;
+    display: none; /* Hidden by default */
+}
+
+canvas { display: block; }
 button {
-    display: block;
-    width: 240px;
-    padding: 12px;
-    margin: 15px auto;
-    background: transparent;
-    color: #00ffcc;
+    padding: 10px 20px;
+    background: #003333;
+    color: white;
     border: 1px solid #00ffcc;
     cursor: pointer;
-    font-size: 16px;
-    font-family: inherit;
-    transition: 0.3s;
-    text-transform: uppercase;
+    margin: 5px;
 }
-
-button:hover {
-    background: #00ffcc;
-    color: #000;
-    box-shadow: 0 0 15px #00ffcc;
-}
-
-.hidden {
-    display: none;
-}
-
-input {
-    padding: 10px;
-    width: 220px;
-    margin-bottom: 15px;
-    background: #000;
-    border: 1px solid #004444;
-    color: #00ffcc;
-    font-family: inherit;
-    text-align: center;
-    text-transform: uppercase;
-}
-
-input:focus {
-    outline: none;
-    border-color: #00ffcc;
-}
+button:hover { background: #005555; }
+.hidden { display: none !important; }
