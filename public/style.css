@@ -1,58 +1,49 @@
 body {
-    margin: 0;
-    overflow: hidden;
-    background-color: #000;
-    font-family: 'Consolas', monospace;
-    color: #00ffcc;
+    margin: 0; overflow: hidden; background-color: #000;
+    font-family: 'Consolas', monospace; color: #00ffcc;
 }
 
 #ui-layer {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-    background: rgba(0, 20, 40, 0.9);
-    padding: 30px;
-    border: 1px solid #00aaaa;
-    box-shadow: 0 0 30px rgba(0, 170, 170, 0.2);
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); text-align: center;
+    background: rgba(0, 20, 40, 0.95); padding: 30px;
+    border: 1px solid #00aaaa; box-shadow: 0 0 30px rgba(0, 170, 170, 0.2);
+    z-index: 10;
 }
 
-/* Heads Up Display (HUD) */
+/* Heads Up Display */
 #hud {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    pointer-events: none; /* Let clicks pass through */
+    position: absolute; top: 20px; left: 20px; pointer-events: none;
+    display: flex; flex-direction: column; gap: 10px;
 }
-
 .hud-panel {
-    background: rgba(0,0,0,0.5);
-    border-left: 3px solid #00ffcc;
-    padding: 10px;
-    margin-bottom: 10px;
+    background: rgba(0,0,0,0.7); border-left: 4px solid #00ffcc;
+    padding: 10px; width: 250px;
 }
 
+/* Interaction Prompt */
 #interaction-prompt {
-    position: absolute;
-    bottom: 100px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #ffcc00;
-    color: black;
-    padding: 10px 20px;
-    font-weight: bold;
-    display: none; /* Hidden by default */
+    position: absolute; bottom: 100px; left: 50%;
+    transform: translateX(-50%); background: #ffcc00;
+    color: black; padding: 10px 20px; font-weight: bold;
+    display: none; border-radius: 4px;
 }
+
+/* Quest/Shop Modal */
+#modal {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); width: 400px;
+    background: #001122; border: 2px solid white;
+    padding: 20px; display: none; text-align: center;
+    z-index: 20;
+}
+#modal h2 { margin-top: 0; color: gold; }
+#modal p { font-size: 1.1em; }
 
 canvas { display: block; }
 button {
-    padding: 10px 20px;
-    background: #003333;
-    color: white;
-    border: 1px solid #00ffcc;
-    cursor: pointer;
-    margin: 5px;
+    padding: 10px 20px; background: #004444; color: white;
+    border: 1px solid #00ffcc; cursor: pointer; margin: 5px;
 }
-button:hover { background: #005555; }
+button:hover { background: #006666; }
 .hidden { display: none !important; }
