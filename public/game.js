@@ -2,402 +2,366 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const socket = io();
 
-// UI Elements
+// DOM Elements
 const uiLayer = document.getElementById('ui-layer');
-const mainMenu = document.getElementById('main-menu');
-const mpMenu = document.getElementById('multiplayer-menu');
-const lobbyScreen = document.getElementById('lobby-screen');
-const roomCodeDisplay = document.getElementById('display-room-code');
-const playerListDiv = document.getElementById('player-list');
-const startBtn = document.getElementById('start-btn');
-const waitingMsg = document.getElementById('waiting-msg');
+const hud = document.getElementById('hud');
+const interactionPrompt = document.getElementById('interaction-prompt');
 
 // Game State
-let gameState = 'MENU'; 
-let mode = 'SINGLE'; 
-let currentRoomCode = null;
+let currentState = 'MENU'; // MENU, PLAYING
+let myId = null;
+let roomCode = null;
 
-// Physics Constants
-const ACCELERATION = 0.15; // Slightly floatier for space
-const MAX_SPEED = 9;
-const FRICTION = 0.98; // Less friction in space
-const TURN_SPEED = 0.06;
+// The Player
+const me = {
+    x: 0, y: 0, angle: 0, 
+    speed: 0, 
+    mode: 'SHIP', // SHIP or WALK
+    location: 'SPACE', // SPACE, STATION_1, PLANET_RED
+    fuel: 100,
+    color: '#00ff00'
+};
 
-// --- Space Assets (Visuals) ---
+const otherPlayers = {};
+const keys = {};
+
+// --- WORLD DATA ---
+// We define static locations in the universe
+const UNIVERSE = {
+    'SPACE': {
+        width: 10000, height: 10000,
+        objects: [
+            { type: 'STATION', id: 'STATION_1', x: 0, y: 0, r: 150, color: '#888' },
+            { type: 'PLANET', id: 'PLANET_RED', x: 2000, y: -1500, r: 300, color: '#cc4444' },
+            { type: 'PLANET', id: 'PLANET_BLUE', x: -2000, y: 1500, r: 400, color: '#4444cc' }
+        ]
+    },
+    'STATION_1': {
+        type: 'INTERIOR', width: 800, height: 600, color: '#222',
+        exits: [{ x: 400, y: 550, to: 'SPACE', spawnX: 0, spawnY: 200 }],
+        shops: [{ x: 400, y: 100, action: 'REFUEL' }]
+    },
+    'PLANET_RED': {
+        type: 'SURFACE', width: 2000, height: 2000, color: '#552222',
+        exits: [{ x: 1000, y: 1000, to: 'SPACE', spawnX: 2000, spawnY: -1100 }]
+    },
+    'PLANET_BLUE': {
+        type: 'SURFACE', width: 2000, height: 2000, color: '#222255',
+        exits: [{ x: 1000, y: 1000, to: 'SPACE', spawnX: -2000, spawnY: 1900 }]
+    }
+};
+
+// Visual Assets
 const stars = [];
-const planets = [];
-const particles = []; // Engine exhaust
+for(let i=0; i<500; i++) stars.push({x: Math.random()*4000-2000, y: Math.random()*4000-2000, s: Math.random()*2});
 
-function initSpaceBackground() {
-    // Generate Stars
-    for(let i=0; i<150; i++) {
-        stars.push({
-            x: Math.random() * window.innerWidth,
-            y: Math.random() * window.innerHeight,
-            size: Math.random() * 2,
-            blinkSpeed: Math.random() * 0.1
-        });
-    }
-    // Generate Planets (Static background objects)
-    planets.push({ x: 100, y: 100, r: 40, color: '#ff4444' }); // Mars-like
-    planets.push({ x: window.innerWidth - 100, y: window.innerHeight - 150, r: 80, color: '#4444ff', rings: true }); // Neptune-like
-}
-
-// Tracks (Neon Space Lanes)
-const tracks = [
-    // 0: Orbital Ring (Oval)
-    { color: '#00ffff', draw: (ctx) => { 
-        ctx.shadowBlur = 20; ctx.shadowColor = '#00ffff';
-        ctx.beginPath(); ctx.ellipse(400, 300, 300, 200, 0, 0, Math.PI*2); 
-        ctx.lineWidth = 60; ctx.strokeStyle = 'rgba(0, 255, 255, 0.2)'; ctx.stroke();
-        ctx.lineWidth = 5; ctx.strokeStyle = '#00ffff'; ctx.stroke(); // Neon Border
-        ctx.shadowBlur = 0;
-    }},
-    // 1: Infinity Nebula (Figure 8)
-    { color: '#ff00ff', draw: (ctx) => { 
-        ctx.shadowBlur = 20; ctx.shadowColor = '#ff00ff';
-        ctx.beginPath(); ctx.arc(250, 300, 150, 0, Math.PI*2); 
-        ctx.moveTo(700, 300); ctx.arc(550, 300, 150, 0, Math.PI*2); 
-        ctx.lineWidth = 60; ctx.strokeStyle = 'rgba(255, 0, 255, 0.2)'; ctx.stroke(); 
-        ctx.lineWidth = 5; ctx.strokeStyle = '#ff00ff'; ctx.stroke();
-        ctx.shadowBlur = 0;
-    }},
-    // 2: Sector 7 (Square)
-    { color: '#ffff00', draw: (ctx) => { 
-        ctx.shadowBlur = 20; ctx.shadowColor = '#ffff00';
-        ctx.lineWidth = 60; ctx.strokeStyle = 'rgba(255, 255, 0, 0.2)'; ctx.strokeRect(100, 100, 600, 400); 
-        ctx.lineWidth = 5; ctx.strokeStyle = '#ffff00'; ctx.strokeRect(100, 100, 600, 400);
-        ctx.shadowBlur = 0;
-    }},
-    // 3: Black Hole Perimeter (Circle)
-    { color: '#ff8800', draw: (ctx) => { 
-        ctx.shadowBlur = 20; ctx.shadowColor = '#ff8800';
-        ctx.beginPath(); ctx.arc(400, 300, 250, 0, Math.PI*2); 
-        ctx.lineWidth = 60; ctx.strokeStyle = 'rgba(255, 136, 0, 0.2)'; ctx.stroke(); 
-        ctx.lineWidth = 5; ctx.strokeStyle = '#ff8800'; ctx.stroke();
-        
-        // Draw Black Hole in center
-        ctx.fillStyle = 'black'; ctx.beginPath(); ctx.arc(400,300, 50, 0, Math.PI*2); ctx.fill();
-        ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
-        ctx.shadowBlur = 0;
-    }},
-    // 4: Asteroid Slalom (Technical)
-    { color: '#00ff00', draw: (ctx) => { 
-        ctx.shadowBlur = 20; ctx.shadowColor = '#00ff00';
-        ctx.beginPath(); 
-        ctx.moveTo(100,100); ctx.lineTo(700,100); ctx.lineTo(700,500); ctx.lineTo(400,300); ctx.lineTo(100,500); 
-        ctx.closePath();
-        ctx.lineWidth = 60; ctx.strokeStyle = 'rgba(0, 255, 0, 0.2)'; ctx.stroke(); 
-        ctx.lineWidth = 5; ctx.strokeStyle = '#00ff00'; ctx.stroke();
-        ctx.shadowBlur = 0;
-    }}
-];
-
-let currentTrack = 0;
-const players = {};
-const bots = [];
-const keys = { w: false, a: false, s: false, d: false };
-
-window.addEventListener('resize', () => {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    initSpaceBackground();
+// --- INPUT HANDLING ---
+window.addEventListener('keydown', (e) => {
+    keys[e.key.toLowerCase()] = true;
+    if (e.key.toLowerCase() === 'e') handleInteraction();
 });
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-initSpaceBackground();
+window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+window.addEventListener('resize', resize);
+function resize(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resize();
 
-window.addEventListener('keydown', (e) => keys[e.key] = true);
-window.addEventListener('keyup', (e) => keys[e.key] = false);
-
-// --- UI Functions ---
-
-function startSinglePlayer() {
-    mode = 'SINGLE';
-    gameState = 'RACING';
-    uiLayer.classList.add('hidden');
-    players['me'] = createShip(100, 100, '#00FF00'); // Green Player
-    // Add Bots
-    bots.push(createBot(100, 150, '#00ffff', 0.03)); 
-    bots.push(createBot(100, 200, '#ff00ff', 0.05)); 
-    bots.push(createBot(100, 250, '#ffff00', 0.07)); 
-    currentTrack = Math.floor(Math.random() * 5);
-    gameLoop();
-}
-
-function showMultiplayerMenu() {
-    mainMenu.classList.add('hidden');
-    mpMenu.classList.remove('hidden');
-}
-
-function backToMain() {
-    mpMenu.classList.add('hidden');
-    mainMenu.classList.remove('hidden');
-}
-
+// --- NETWORK ---
 function createRoom() { socket.emit('createRoom'); }
-
-function joinRoom() {
-    const code = document.getElementById('room-code-input').value.toUpperCase();
-    if(code) socket.emit('joinRoom', code);
+function joinRoom() { 
+    const code = document.getElementById('room-code').value;
+    if(code) socket.emit('joinRoom', code.toUpperCase()); 
 }
 
-function hostStartGame() { socket.emit('startGame', currentRoomCode); }
-
-// --- Socket Events ---
-
-socket.on('roomCreated', (code) => enterLobby(code, true));
-socket.on('joinedRoom', (code) => enterLobby(code, false));
-
-socket.on('updatePlayerList', (serverPlayers) => {
-    playerListDiv.innerHTML = '';
-    for (let id in serverPlayers) {
-        if (!players[id]) players[id] = serverPlayers[id]; // Sync
-        const p = serverPlayers[id];
-        const div = document.createElement('div');
-        div.innerText = `Pilot ${id.substr(0,4)} ${p.isHost ? '[CMPT]' : ''}`;
-        div.style.color = p.color;
-        div.style.fontFamily = 'monospace';
-        playerListDiv.appendChild(div);
+socket.on('roomCreated', (code) => startGame(code));
+socket.on('joinedRoom', (code) => startGame(code));
+socket.on('updatePlayerList', (list) => {
+    for(let id in list) {
+        if(id !== socket.id) otherPlayers[id] = list[id];
+        else {
+            // Sync server defaults if needed, but usually client authorities movement
+            if(!myId) {
+                myId = id;
+                me.color = list[id].color;
+            }
+        }
     }
 });
-
-socket.on('gameStart', (data) => {
-    gameState = 'RACING';
-    currentTrack = data.trackIndex;
-    uiLayer.classList.add('hidden');
-    gameLoop();
-});
-
 socket.on('playerMoved', (data) => {
-    if (players[data.id]) {
-        players[data.id].x = data.x;
-        players[data.id].y = data.y;
-        players[data.id].angle = data.angle;
-        // Add Engine trail for remote players if they are moving
-        if(Math.random() > 0.5) addParticle(data.x, data.y, data.angle, players[data.id].color);
+    if(otherPlayers[data.id]) {
+        Object.assign(otherPlayers[data.id], data);
     }
 });
 
-function enterLobby(code, isHost) {
-    currentRoomCode = code;
-    mode = 'MULTI';
-    mpMenu.classList.add('hidden');
-    lobbyScreen.classList.remove('hidden');
-    roomCodeDisplay.innerText = code;
-    if (isHost) {
-        startBtn.classList.remove('hidden');
-        waitingMsg.classList.add('hidden');
-    } else {
-        startBtn.classList.add('hidden');
-        waitingMsg.classList.remove('hidden');
+function startGame(code) {
+    roomCode = code;
+    currentState = 'PLAYING';
+    uiLayer.classList.add('hidden');
+    
+    // Create HUD
+    const hudDiv = document.createElement('div');
+    hudDiv.id = 'hud';
+    hudDiv.innerHTML = `
+        <div class="hud-panel">LOCATION: <span id="hud-loc">DEEP SPACE</span></div>
+        <div class="hud-panel">FUEL: <span id="hud-fuel">100%</span></div>
+        <div class="hud-panel">MODE: <span id="hud-mode">SHIP</span></div>
+        <div class="hud-panel">ROOM: ${code}</div>
+    `;
+    document.body.appendChild(hudDiv);
+    
+    requestAnimationFrame(gameLoop);
+}
+
+// --- LOGIC ---
+
+function handleInteraction() {
+    // Check if near any interactive object in current map
+    const map = UNIVERSE[me.location];
+    
+    // 1. Exits (Leaving planet/station)
+    if (map.exits) {
+        map.exits.forEach(exit => {
+            const dist = Math.hypot(me.x - exit.x, me.y - exit.y);
+            if (dist < 50) {
+                switchLocation(exit.to, exit.spawnX, exit.spawnY, 'SHIP');
+            }
+        });
     }
-}
 
-// --- Game Logic ---
-
-function createShip(x, y, color) {
-    return { x, y, angle: 0, speed: 0, color, width: 20, height: 20 };
-}
-
-function createBot(x, y, color, skill) {
-    return { 
-        x, y, angle: 0, speed: 0, color, width: 20, height: 20, 
-        skill, 
-        targetX: Math.random() * canvas.width, 
-        targetY: Math.random() * canvas.height 
-    };
-}
-
-function addParticle(x, y, angle, color) {
-    // Spawn particle behind the ship
-    const bx = x - Math.cos(angle) * 15;
-    const by = y - Math.sin(angle) * 15;
-    particles.push({
-        x: bx + (Math.random() - 0.5) * 5,
-        y: by + (Math.random() - 0.5) * 5,
-        life: 1.0,
-        color: color
-    });
-}
-
-function updatePhysics(ship, isLocal) {
-    ship.x += Math.cos(ship.angle) * ship.speed;
-    ship.y += Math.sin(ship.angle) * ship.speed;
-    ship.speed *= FRICTION;
-
-    // Add engine particles if moving fast
-    if (isLocal && Math.abs(ship.speed) > 1) {
-        addParticle(ship.x, ship.y, ship.angle, ship.color);
+    // 2. Objects (Entering planet/station from Space)
+    if (me.location === 'SPACE') {
+        map.objects.forEach(obj => {
+            const dist = Math.hypot(me.x - obj.x, me.y - obj.y);
+            if (dist < obj.r + 50) {
+                // Enter location
+                // Default spawn is center of map (width/2)
+                const targetMap = UNIVERSE[obj.id];
+                switchLocation(obj.id, targetMap.width/2, targetMap.height/2, 'WALK');
+            }
+        });
     }
-}
-
-function updatePlayer() {
-    const p = (mode === 'SINGLE') ? players['me'] : players[socket.id];
-    if (!p) return; 
-
-    if (keys['w']) p.speed += ACCELERATION;
-    if (keys['s']) p.speed -= ACCELERATION;
-    if (keys['a']) p.angle -= TURN_SPEED;
-    if (keys['d']) p.angle += TURN_SPEED;
-
-    if (p.speed > MAX_SPEED) p.speed = MAX_SPEED;
-    if (p.speed < -MAX_SPEED/2) p.speed = -MAX_SPEED/2;
-
-    updatePhysics(p, true);
-
-    if (mode === 'MULTI') {
-        socket.emit('playerUpdate', {
-            roomCode: currentRoomCode,
-            x: p.x, y: p.y, angle: p.angle
+    
+    // 3. Shops/Actions
+    if (map.shops) {
+        map.shops.forEach(shop => {
+            const dist = Math.hypot(me.x - shop.x, me.y - shop.y);
+            if (dist < 50) {
+                if(shop.action === 'REFUEL') me.fuel = 100;
+            }
         });
     }
 }
 
-function updateBots() {
-    bots.forEach(bot => {
-        const dx = bot.targetX - bot.x;
-        const dy = bot.targetY - bot.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        
-        if (dist < 50) {
-            bot.targetX = Math.random() * canvas.width;
-            bot.targetY = Math.random() * canvas.height;
-        }
-
-        const targetAngle = Math.atan2(dy, dx);
-        let diff = targetAngle - bot.angle;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-
-        if (diff > bot.skill) bot.angle += bot.skill;
-        else if (diff < -bot.skill) bot.angle -= bot.skill;
-        else bot.angle = targetAngle;
-
-        bot.speed += ACCELERATION * 0.5; 
-        if (bot.speed > MAX_SPEED * 0.8) bot.speed = MAX_SPEED * 0.8;
-
-        updatePhysics(bot, true);
-    });
+function switchLocation(newLoc, x, y, newMode) {
+    me.location = newLoc;
+    me.x = x;
+    me.y = y;
+    me.mode = newMode;
+    me.speed = 0;
+    // Reset view
 }
 
-function drawBackground() {
-    // Clear with semi-transparent black for trails? No, strict clear for performance.
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw Stars
-    ctx.fillStyle = 'white';
-    stars.forEach(star => {
-        ctx.globalAlpha = 0.5 + Math.sin(Date.now() * star.blinkSpeed) * 0.5;
-        ctx.beginPath();
-        ctx.arc(star.x, star.y, star.size, 0, Math.PI*2);
-        ctx.fill();
-    });
-    ctx.globalAlpha = 1.0;
-
-    // Draw Planets
-    planets.forEach(p => {
-        const gradient = ctx.createRadialGradient(p.x-10, p.y-10, p.r/4, p.x, p.y, p.r);
-        gradient.addColorStop(0, p.color);
-        gradient.addColorStop(1, '#000');
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
-        ctx.fill();
-        
-        if(p.rings) {
-            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-            ctx.lineWidth = 5;
-            ctx.beginPath();
-            ctx.ellipse(p.x, p.y, p.r + 20, p.r / 3, -0.4, 0, Math.PI*2);
-            ctx.stroke();
+function updatePhysics() {
+    if (me.mode === 'SHIP') {
+        // Drifting physics
+        if (keys['w'] && me.fuel > 0) {
+            me.speed += 0.1;
+            me.fuel -= 0.05;
         }
-    });
+        if (keys['s']) me.speed -= 0.1;
+        if (keys['a']) me.angle -= 0.05;
+        if (keys['d']) me.angle += 0.05;
+        
+        me.x += Math.cos(me.angle) * me.speed;
+        me.y += Math.sin(me.angle) * me.speed;
+        me.speed *= 0.99; // Space friction
+    } else {
+        // Walking physics (Direct control)
+        const moveSpeed = 3;
+        if (keys['w']) me.y -= moveSpeed;
+        if (keys['s']) me.y += moveSpeed;
+        if (keys['a']) me.x -= moveSpeed;
+        if (keys['d']) me.x += moveSpeed;
+        
+        // Face mouse logic could go here, for now simple walking
+        if (keys['w'] || keys['s'] || keys['a'] || keys['d']) {
+            me.angle = Math.atan2(keys['s'] - keys['w'], keys['d'] - keys['a']); // Rough approximation
+        }
+    }
 
-    // Draw Meteors (Static decoration for now)
-    ctx.fillStyle = '#555';
-    ctx.beginPath();
-    ctx.arc(200, 200, 15, 0, Math.PI*2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(800, 150, 25, 0, Math.PI*2);
-    ctx.fill();
+    // Bounds check for Interior/Planets
+    const map = UNIVERSE[me.location];
+    if (me.location !== 'SPACE') {
+        if(me.x < 0) me.x = 0;
+        if(me.y < 0) me.y = 0;
+        if(me.x > map.width) me.x = map.width;
+        if(me.y > map.height) me.y = map.height;
+    }
+
+    // Send to server
+    if(roomCode) {
+        socket.emit('playerUpdate', {
+            roomCode,
+            x: me.x, y: me.y, angle: me.angle,
+            mode: me.mode,
+            location: me.location
+        });
+    }
 }
 
-function drawShip(ship) {
+// --- RENDER ---
+
+function drawCamera() {
+    // Center camera on player
     ctx.save();
-    ctx.translate(ship.x, ship.y);
-    ctx.rotate(ship.angle);
-    
-    // Draw Ship Body (Triangle)
-    ctx.beginPath();
-    ctx.moveTo(15, 0);   // Nose
-    ctx.lineTo(-10, 10); // Rear Left
-    ctx.lineTo(-5, 0);   // Engine Center
-    ctx.lineTo(-10, -10);// Rear Right
-    ctx.closePath();
-    
-    ctx.fillStyle = ship.color;
-    ctx.fill();
-    
-    // Cockpit
-    ctx.fillStyle = 'rgba(200, 255, 255, 0.8)';
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 5, 3, 0, 0, Math.PI*2);
-    ctx.fill();
+    ctx.translate(canvas.width/2 - me.x, canvas.height/2 - me.y);
+}
 
-    // Glow
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = ship.color;
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = 1;
+function drawHUD() {
+    document.getElementById('hud-loc').innerText = me.location;
+    document.getElementById('hud-fuel').innerText = Math.floor(me.fuel) + '%';
+    document.getElementById('hud-mode').innerText = me.mode;
+    
+    // Check for interactions
+    let canInteract = false;
+    const map = UNIVERSE[me.location];
+    
+    // Logic to show "Press E"
+    if (me.location === 'SPACE') {
+        map.objects.forEach(obj => {
+            if (Math.hypot(me.x - obj.x, me.y - obj.y) < obj.r + 50) {
+                interactionPrompt.innerText = `PRESS 'E' TO ENTER ${obj.id}`;
+                canInteract = true;
+            }
+        });
+    } else if (map.exits) {
+        map.exits.forEach(exit => {
+            if (Math.hypot(me.x - exit.x, me.y - exit.y) < 50) {
+                interactionPrompt.innerText = "PRESS 'E' TO TAKEOFF";
+                canInteract = true;
+            }
+        });
+    }
+    
+    if (map.shops) {
+         map.shops.forEach(shop => {
+            if (Math.hypot(me.x - shop.x, me.y - shop.y) < 50) {
+                interactionPrompt.innerText = `PRESS 'E' TO ${shop.action}`;
+                canInteract = true;
+            }
+        });
+    }
+
+    interactionPrompt.style.display = canInteract ? 'block' : 'none';
+}
+
+function drawSpaceMap() {
+    // Stars (parallax possible, but static for now)
+    stars.forEach(s => {
+        ctx.fillStyle = 'white';
+        ctx.fillRect(s.x + me.x*0.1, s.y + me.y*0.1, s.s, s.s); // Simple Parallax
+    });
+
+    const map = UNIVERSE['SPACE'];
+    map.objects.forEach(obj => {
+        ctx.beginPath();
+        ctx.arc(obj.x, obj.y, obj.r, 0, Math.PI*2);
+        ctx.fillStyle = obj.color;
+        ctx.fill();
+        ctx.fillStyle = 'white';
+        ctx.font = '20px monospace';
+        ctx.fillText(obj.id, obj.x - 30, obj.y);
+    });
+}
+
+function drawSurfaceMap(mapName) {
+    const map = UNIVERSE[mapName];
+    // Draw Ground
+    ctx.fillStyle = map.color;
+    ctx.fillRect(0, 0, map.width, map.height);
+    
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath();
+    for(let i=0; i<map.width; i+=100) { ctx.moveTo(i,0); ctx.lineTo(i, map.height); }
+    for(let i=0; i<map.height; i+=100) { ctx.moveTo(0,i); ctx.lineTo(map.width, i); }
     ctx.stroke();
-    ctx.shadowBlur = 0;
 
+    // Draw Exits (Ship)
+    if(map.exits) {
+        map.exits.forEach(e => {
+            ctx.fillStyle = 'rgba(0,255,0,0.3)';
+            ctx.beginPath();
+            ctx.arc(e.x, e.y, 40, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = 'white';
+            ctx.fillText("SHIP", e.x-15, e.y);
+        });
+    }
+    
+    // Draw Shops
+    if(map.shops) {
+        map.shops.forEach(s => {
+            ctx.fillStyle = 'gold';
+            ctx.fillRect(s.x-20, s.y-20, 40, 40);
+            ctx.fillStyle = 'black';
+            ctx.fillText("FUEL", s.x-15, s.y+5);
+        });
+    }
+}
+
+function drawPlayer(p, isMe) {
+    // Don't draw if not in same location
+    if (p.location !== me.location) return;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    
+    if (p.mode === 'SHIP') {
+        ctx.rotate(p.angle);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.moveTo(20, 0);
+        ctx.lineTo(-15, 15);
+        ctx.lineTo(-5, 0);
+        ctx.lineTo(-15, -15);
+        ctx.fill();
+    } else {
+        // Walking Person
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, Math.PI*2);
+        ctx.fill();
+        // Name tag
+        ctx.fillStyle = 'white';
+        ctx.font = '10px monospace';
+        ctx.fillText(isMe ? "YOU" : "P2", -10, -15);
+    }
     ctx.restore();
 }
 
-function drawParticles() {
-    for(let i=particles.length-1; i>=0; i--) {
-        const p = particles[i];
-        p.life -= 0.05;
-        p.x += (Math.random() - 0.5); 
-        p.y += (Math.random() - 0.5);
-        
-        if(p.life <= 0) {
-            particles.splice(i, 1);
-        } else {
-            ctx.globalAlpha = p.life;
-            ctx.fillStyle = p.color;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 3 * p.life, 0, Math.PI*2);
-            ctx.fill();
-            ctx.globalAlpha = 1.0;
-        }
-    }
-}
-
 function gameLoop() {
-    if (gameState !== 'RACING') return;
+    if (currentState !== 'PLAYING') return;
 
-    drawBackground();
+    updatePhysics();
+    drawHUD();
 
-    // Draw Track
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    tracks[currentTrack].draw(ctx);
+    // Clear Screen
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    updatePlayer();
-    
-    // Draw Players & Bots
-    drawParticles(); // Draw exhaust under ships
+    drawCamera();
 
-    for (let id in players) drawShip(players[id]);
+    // Draw World
+    if (me.location === 'SPACE') drawSpaceMap();
+    else drawSurfaceMap(me.location);
 
-    if (mode === 'SINGLE') {
-        updateBots();
-        bots.forEach(bot => drawShip(bot));
+    // Draw Players
+    drawPlayer(me, true);
+    for (let id in otherPlayers) {
+        drawPlayer(otherPlayers[id], false);
     }
+
+    ctx.restore(); // Pop camera
 
     requestAnimationFrame(gameLoop);
 }
