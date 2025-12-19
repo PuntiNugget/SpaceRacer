@@ -8,10 +8,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Game State Storage
 const rooms = {};
 
 function generateRoomCode() {
@@ -19,24 +17,22 @@ function generateRoomCode() {
 }
 
 io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
+    console.log('Explorer connected:', socket.id);
 
-    // Create a Room
     socket.on('createRoom', () => {
         const roomCode = generateRoomCode();
         rooms[roomCode] = {
             host: socket.id,
-            players: {},
-            gameStarted: false,
-            trackIndex: 0 // Default track
+            players: {} // No gameStarted flag needed for open world
         };
+        // Initialize Host in Deep Space
         rooms[roomCode].players[socket.id] = {
             id: socket.id,
-            color: '#FF0000', // Host is Red
-            x: 100,
-            y: 100,
+            color: '#00FF00',
+            x: 0, y: 0, 
             angle: 0,
-            isHost: true
+            mode: 'SHIP', // SHIP or WALK
+            location: 'SPACE' // SPACE, STATION_1, PLANET_RED
         };
         
         socket.join(roomCode);
@@ -44,60 +40,45 @@ io.on('connection', (socket) => {
         socket.emit('updatePlayerList', rooms[roomCode].players);
     });
 
-    // Join a Room
     socket.on('joinRoom', (roomCode) => {
-        if (rooms[roomCode] && !rooms[roomCode].gameStarted) {
+        if (rooms[roomCode]) {
             rooms[roomCode].players[socket.id] = {
                 id: socket.id,
-                color: '#' + Math.floor(Math.random()*16777215).toString(16), // Random color
-                x: 100,
-                y: 100,
+                color: '#' + Math.floor(Math.random()*16777215).toString(16),
+                x: 0, y: 0, 
                 angle: 0,
-                isHost: false
+                mode: 'SHIP',
+                location: 'SPACE'
             };
             socket.join(roomCode);
             socket.emit('joinedRoom', roomCode);
-            
-            // Notify everyone in room of new player
             io.to(roomCode).emit('updatePlayerList', rooms[roomCode].players);
-        } else {
-            socket.emit('error', 'Room not found or game started');
         }
     });
 
-    // Start Game (Host Only)
-    socket.on('startGame', (roomCode) => {
-        if (rooms[roomCode] && rooms[roomCode].host === socket.id) {
-            rooms[roomCode].gameStarted = true;
-            // Select a random track or use a specific one
-            const selectedTrack = Math.floor(Math.random() * 5); 
-            io.to(roomCode).emit('gameStart', { trackIndex: selectedTrack });
-        }
-    });
-
-    // Player Movement Updates
+    // Unified Update Handler
     socket.on('playerUpdate', (data) => {
         const roomCode = data.roomCode;
         if (rooms[roomCode] && rooms[roomCode].players[socket.id]) {
-            // Update server state (basic validation could go here)
             const p = rooms[roomCode].players[socket.id];
             p.x = data.x;
             p.y = data.y;
             p.angle = data.angle;
+            p.mode = data.mode;
+            p.location = data.location;
 
-            // Broadcast to others in the room (excluding sender if desired, but io.to includes sender)
+            // Broadcast to room
             socket.to(roomCode).emit('playerMoved', {
                 id: socket.id,
-                x: p.x,
-                y: p.y,
-                angle: p.angle
+                x: p.x, y: p.y, angle: p.angle,
+                mode: p.mode,
+                location: p.location
             });
         }
     });
 
     socket.on('disconnect', () => {
-        // Cleanup logic would go here (removing players from rooms)
-        console.log('User disconnected:', socket.id);
+        // In a real app, we'd clean up the room object here
     });
 });
 
